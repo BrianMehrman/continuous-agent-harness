@@ -1,6 +1,8 @@
 # Architecture
 
-Status: Draft for review
+Status: Original architecture; executor and stack sections superseded
+
+Read the [Spring Boot durable foundation](spring-boot-durable-foundation.md) first. Java/Spring Boot and automatic continuation after crashes and deployments are the current requirements. The original phase-one custom worker, authoritative run row, singleton lock, interruption-only restart policy, and phase-two recovery deferral below are historical alternatives, not implementation instructions. Other boundaries remain subject to the revised design.
 
 Date: 2026-09-20
 

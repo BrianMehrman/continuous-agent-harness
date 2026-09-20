@@ -8,7 +8,7 @@ Depends on: [Architecture](architecture.md)
 
 ## Outcome
 
-Run the same bounded task against a local model and a remote model, inspect what happened, and evaluate the result using a deterministic verifier. Phase 1 establishes measurement and operating behavior before adding autonomy across restarts.
+Run the same bounded task against a local model and a remote model, inspect what happened, and evaluate the result using a deterministic verifier. Phase 1 establishes measurement and automatic continuation after crashes and compatible deployments. The [durable foundation design](spring-boot-durable-foundation.md) governs recovery, command delivery, execution ownership, and deployment semantics; its P1-16 through P1-19 criteria are part of this specification.
 
 ## Proposed demonstration task
 
@@ -32,7 +32,7 @@ The task is a proposed first benchmark; its selection does not restrict later co
 | P1-08 | Expose application and agent observability | A run correlates HTTP, execution, model, and tool spans with structured logs and metrics |
 | P1-09 | Preserve truthful usage | Missing provider usage displays unknown; no invented cost or token count |
 | P1-10 | Verify success independently | Incorrect structured output fails; correct output passes even when prose differs |
-| P1-11 | Handle application restart honestly | In-progress work is interrupted, queued work remains eligible, and prior history persists |
+| P1-11 | Handle application restart honestly | The same run resumes using recorded completed steps; pending work remains eligible and prior history persists |
 | P1-12 | Keep secrets out of displayed/exported configuration and diagnostics | Automated checks using sentinel credentials find no leakage |
 | P1-13 | Remain operable during telemetry outage | Run completes and history remains inspectable with exporter unavailable |
 | P1-14 | Prevent duplicate creation and conflicting updates | Repeated start command ID returns the same run; incompatible state version rejects a mutation |
@@ -44,7 +44,7 @@ Start with one active run at a time and sequential tool execution. Default limit
 
 Before every call, validate the remaining allowance. Provider output-token limits are sent when supported. Token/cost budgets are optional and must not be advertised as hard guarantees without enforceable usage and pricing. Phase 1 always enforces call and time bounds.
 
-No automatic retries of model or tool calls in phase 1. Record timeout, transport failure, provider rejection, malformed response, invalid tool request, verification failure, and limit exhaustion distinctly. A manually retried run references its predecessor but starts from the original input with a newly selected, recorded configuration.
+Use explicit bounded infrastructure retry/reconciliation policies as defined in the durable foundation design. Recorded completed calls are not repeated on replay; uncertain completion can cause another attempt and must remain visible. Do not retry invalid output or verifier failures automatically. Record timeout, transport failure, provider rejection, malformed response, invalid tool request, verification failure, and limit exhaustion distinctly. A manually retried run references its predecessor but starts from the original input with a newly selected, recorded configuration.
 
 The runtime retains structured model messages and tool results for this bounded task. It rejects context overflow rather than silently truncating. Streaming text is optional; semantic progress events and final content are required. Providers without token streaming remain usable.
 
@@ -52,7 +52,7 @@ The runtime retains structured model messages and tool results for this bounded 
 
 The console is a client of an application API. Logical operations are create/list/read run, read ordered events after a sequence, cancel run, retry run, and list available profile revisions. Server-sent events are the proposed live transport; polling remains a valid fallback and neither owns execution.
 
-Repeated command IDs are idempotent within the command's scope. Accepted cancellation is visible immediately as cancel_requested; final acknowledgment follows when local execution stops. Unsupported pause/resume and live messaging controls are not shown as available in phase 1.
+Repeated command IDs are idempotent within the command's scope. A durably accepted cancellation is shown as pending delivery until the Workflow applies it as cancel_requested; final acknowledgment follows when execution stops. P1-07 ordering is determined by Workflow application, and P1-14 expected-version checks use authoritative workflow state, not a potentially stale projection. Unsupported pause/resume and live messaging controls are not shown as available in phase 1.
 
 Profile settings are configured locally in phase 1 and shown in the console without secret values. Full profile editing, active-run messages, and revisions applied to live runs belong to phase 2.
 
@@ -73,4 +73,4 @@ All P1 acceptance criteria have evidence; the local and remote demonstration run
 
 ## Exclusions
 
-Automatic crash resume, checkpoint forking, remote control channels, arbitrary shell execution, graph scheduling, multi-agent delegation, recurring triggers, automatic prompt optimization, and multi-user hosting.
+Checkpoint forking, remote control channels, arbitrary shell execution, graph scheduling, multi-agent delegation, recurring triggers, automatic prompt optimization, and multi-user hosting.

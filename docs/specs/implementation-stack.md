@@ -1,75 +1,51 @@
-# Recommended implementation stack
+# Implementation stack
 
-Status: Proposed
+Status: Java/Spring Boot accepted; supporting libraries proposed
 
 Date: 2026-09-20
 
-Decision: [ADR 0005](../adr/0005-typescript-postgresql-stack.md)
+Decisions: [ADR 0006](../adr/0006-java-spring-boot-foundation.md), [proposed ADR 0007](../adr/0007-durable-execution-foundation.md)
 
-## Recommendation
+## Foundation
 
-Build a TypeScript modular application with a React console and PostgreSQL storage. This keeps the operator interface, model integrations, and execution logic in one language while preserving a relational foundation for later worker coordination. Start with one repository and one package rather than an internal package publishing system.
+Use Java and Spring Boot for the harness. Automatic continuation after crashes and deployments is required in the first usable version. See the [durable foundation design](spring-boot-durable-foundation.md) for execution ownership and recovery requirements.
 
-| Area | Choice | Responsibility |
+| Area | Choice | Status / responsibility |
 |---|---|---|
-| Runtime | Node.js, supported LTS release at implementation time | Application and worker process |
-| Language | TypeScript with strict checking and ESM | Shared contracts and explicit adapter types |
-| HTTP | Fastify | API, validation, health endpoints, event streaming, serving built UI |
-| Console | React and Vite | Run list/detail, configuration selection, lifecycle controls |
-| Storage | PostgreSQL | Runs, attempts, events, profile revisions, commands, small artifacts |
-| Database access | Drizzle and pg | Typed queries, explicit transactions, reviewed SQL migrations |
-| Contract validation | JSON Schema at external boundaries | Validate task input, model/tool outputs, API requests |
-| Model integration | Small protocol adapters using fetch or an SDK behind the adapter | Local/remote inference with deadlines and explicit capability mapping |
-| Testing | Vitest and Playwright | Behavior/contract tests and operator flows |
-| Diagnostics | OpenTelemetry traces/metrics and structured Pino logs | Correlated application and agent signals |
-| Local diagnostics backend | Grafana Docker LGTM | Local collection and inspection of traces, metrics, and logs |
-| Dependency environment | Docker Compose | PostgreSQL and optional diagnostics backend |
+| Backend | Java, Spring Boot | Accepted; API and worker application |
+| Model integration | Spring AI behind a model adapter | Proposed; local/remote inference with explicit capabilities; tool scheduling stays with the Workflow |
+| Execution | Temporal Java SDK and service | Proposed; authoritative durable workflow execution |
+| Application storage | PostgreSQL | Proposed; configuration, command delivery, artifacts, query projections |
+| Schema migrations | Flyway SQL migrations | Proposed; descriptive names such as `V1__create_model_profiles.sql`; verify history entries |
+| Operator console | React, TypeScript, Vite | Proposed; generated API contracts and runtime validation |
+| Java build | Maven wrapper | Proposed; reproducible build and dependency management |
+| Tests | JUnit, Spring Boot Test, Testcontainers, Temporal test tooling | Proposed; real-service crash/deployment tests in addition to unit tests |
+| Browser tests | Playwright | Proposed; start, reconnect, cancellation, recovery visibility |
+| Diagnostics | Spring observability, OpenTelemetry-compatible export, structured logs, Grafana LGTM | Proposed; bounded export and correlated identifiers |
+| Local services | Docker Compose | Proposed; PostgreSQL, durable Temporal service, optional diagnostics |
 
-Framework/library choices within this table are implementation recommendations, not separate ADR subjects. Verify compatibility and pin versions in the lockfile and container configuration during implementation; do not use floating image tags in reproducible acceptance evidence.
+Choose exact supported versions after compatibility verification; pin dependencies and images. Temporal service persistence and application tables have separate ownership. A disposable development server does not establish the required restart durability.
 
-## Development and deployment shape
+## Integration rules
 
-Run PostgreSQL and optional telemetry services through Compose. Run the Node application locally with watch mode. The application hosts the API and worker; Vite may run as a separate development process with same-origin proxying. A production build is served by the Node application. This is one deployment unit, not a Next.js/serverless application with request-bound execution.
+Use lower-level model requests so each model invocation and tool execution has an explicit Activity boundary. Do not let an opaque framework loop hide tool effects or retries from durable orchestration. Disable automatic framework tool execution on that path and test that no tool executes implicitly.
 
-Use a dedicated database connection to hold the phase-one singleton advisory lock. Do not return that connection to a general query pool. If the connection is lost, stop accepting work and stop execution rather than silently proceeding without ownership. Broader lease/fencing recovery is a phase-two concern.
+Default configuration changes affect only future runs. Preserve run definition/profile revisions across deployments. Resolve secret references only outside Workflow code and prevent values from entering durable history or diagnostics.
 
-Keep telemetry export asynchronous and bounded. Use structured logs even with export disabled. The local LGTM environment is for development; it does not establish a production monitoring or retention strategy. Set a seven-day default for local run payload retention, preserve the setting in project configuration, and require explicit cleanup execution in phase 1. Do not auto-delete records during an active experiment. Payload retention policy and diagnostic backend retention are distinct.
+Generate browser contracts from the API schema. Java/TypeScript language separation is acceptable and does not require two execution authorities.
 
-## Suggested module layout
+Bind operator access to loopback with same-origin mutation checks and CSRF protection. Keep diagnostic buffers bounded and payload capture off by default. Retain the proposed seven-day local application payload retention default with explicit cleanup; retention must never remove data required by active runs. Temporal history retention is separate and needs an explicit operational policy.
 
-```text
-src/
-  server/          HTTP routes and application startup
-  runs/            Lifecycle, commands, persistence operations
-  execution/       Worker and built-in bounded loop
-  models/          Profile resolution and model adapters
-  tools/           Tool contracts and scoped execution
-  telemetry/       Traces, metrics, log correlation and redaction
-  definitions/     Code-defined tasks and deterministic verifiers
-  web/             Operator console
-  db/              Schema and connection management
-migrations/        Reviewed SQL with descriptive purpose names
-fixtures/          Immutable non-private benchmark inputs
-config/            Example model profiles without secrets
-tests/            Integration, adapter-contract and end-to-end tests
-```
+## Alternatives
 
-The layout is a planning baseline, not a mandate for empty scaffolding. Create modules with the first tested behavior that needs them. Unit tests may be colocated with their modules. Use descriptive migration names such as `create_run_history`; verify generated filenames and journal tags before committing. Do not rename a migration after it has been committed or applied.
+LangChain4j remains a viable model abstraction, with Java-oriented AI Services and model integrations. Prefer one model framework initially; Spring AI is recommended for alignment with Spring Boot and its observability. Neither framework alone establishes the required recovery semantics.
 
-## Alternatives considered
-
-**Rails:** well suited to the operator application, background jobs, and persistence, with an existing observability reference available. It remains a strong choice if product CRUD dominates. TypeScript is recommended here because the console and evolving coded execution definitions can share a language and contracts, and the inspected remote-agent example is already in TypeScript.
-
-**Python with FastAPI:** a good fit for research-heavy graph and model tooling. It would introduce a separate UI language and associated contract generation or duplication. Reconsider if Python-only integrations become core requirements.
-
-**SQLite:** minimizes local dependencies and would suffice for one worker. PostgreSQL is recommended because coordination and independent workers are explicit later goals; it avoids changing database behavior when those phases begin. The tradeoff is operating a local database service from the start.
-
-**LangGraph or Temporal immediately:** either could own execution, but stack choice does not settle that decision. Evaluate durability requirements before phase 2. The application model must not become a second authority for engine-owned execution state.
+Go and Rust are viable backend alternatives, but Java/Spring Boot is selected. The earlier TypeScript recommendation emphasized shared UI contracts and is superseded; no performance comparison has been measured.
 
 ## Sources
 
-- [Fastify documentation](https://fastify.dev/docs/latest/) — HTTP framework, validation, and TypeScript documentation.
-- [PostgreSQL explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html) — transactional and advisory locking facilities.
-- [Drizzle migrations](https://orm.drizzle.team/docs/migrations) — schema/migration workflows.
-- [OpenTelemetry JavaScript](https://opentelemetry.io/docs/languages/js/) — signal support and SDK instrumentation. Verify signal/exporter maturity for the chosen versions; JSON log collection need not depend on an experimental log SDK.
-- [Grafana Docker LGTM](https://grafana.com/docs/opentelemetry/docker-lgtm/) — local development observability environment.
+- [Spring AI overview](https://docs.spring.io/spring-ai/reference/)
+- [Spring AI tools](https://docs.spring.io/spring-ai/reference/api/tools.html)
+- [Spring AI observability](https://docs.spring.io/spring-ai/reference/observability/)
+- [LangChain4j introduction](https://docs.langchain4j.dev/intro/)
+- [Temporal Java SDK](https://github.com/temporalio/sdk-java)
