@@ -6,6 +6,10 @@ Date: 2026-09-20
 
 Decisions: [ADR 0006](../adr/0006-java-spring-boot-foundation.md), [proposed ADR 0007](../adr/0007-durable-execution-foundation.md)
 
+## First implementation milestone
+
+The accepted target is a [task-tracker CLI built by local Ollama](local-task-tracker-benchmark.md). The [implementation plan](../plans/2026-09-20-local-task-tracker-implementation.md) proposes Java 21, Spring Boot 4.1.1, Spring AI 2.0.1 and Temporal Java SDK 1.36.1/server 1.32.0, with dependency/image resolution and compatibility tests as its first task. These versions are documentation-checked candidates, not a tested application build. A trusted container runner and immutable workspace storage are required for coding tools.
+
 ## Foundation
 
 Use Java and Spring Boot for the harness. Automatic continuation after crashes and deployments is required in the first usable version. See the [durable foundation design](spring-boot-durable-foundation.md) for execution ownership and recovery requirements.

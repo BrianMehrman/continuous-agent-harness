@@ -1,6 +1,8 @@
 # Spring Boot and durable execution foundation
 
-Status: Revised design for review; Java/Spring Boot and first-version recovery requirements accepted
+Status: Supporting durable design for review; Java/Spring Boot and first-version recovery requirements accepted
+
+Scope update: the accepted first target is the [local task-tracker coding benchmark](local-task-tracker-benchmark.md). That specification supersedes the incident-report task, original limits, pure-tool restriction and local/remote delivery order below. Its [implementation plan](../plans/2026-09-20-local-task-tracker-implementation.md) defines the first API/CLI slice; browser and remote coverage follow.
 
 Date: 2026-09-20
 
@@ -8,7 +10,7 @@ Date: 2026-09-20
 
 This design replaces the original phase-one executor and stack recommendations. [ADR 0006](../adr/0006-java-spring-boot-foundation.md) accepts Java/Spring Boot. [ADR 0007](../adr/0007-durable-execution-foundation.md) proposes Temporal and the supporting Spring AI integration. The older architecture remains useful for model/runtime separation, scoped configuration, tool restrictions, and diagnostic policy; conflicting executor ownership and restart behavior are superseded by this design.
 
-The first release runs one bounded incident-report task with local and remote profiles, deterministic verification, an operator console, observability, and automatic continuation after a worker crash or compatible deployment. Interactive messages, manual pause/resume, arbitrary shell tools, graph scheduling, fleets, and multi-user hosting remain later work.
+The first coding milestone has a local Ollama model implement a task-tracker CLI with immutable source snapshots, controlled container builds/tests, independent evaluation, an operator API/CLI, observability, and automatic continuation after a worker crash or compatible deployment. Remote profiles and the browser console follow in subsequent milestones. Interactive messages, manual pause/resume, arbitrary shell tools, graph scheduling, fleets, and multi-user hosting remain later work.
 
 ## Components and ownership
 
@@ -35,7 +37,7 @@ The API and worker can begin in one codebase and deployment unit, with independe
 
 All network and database operations stay outside Workflow code. Use workflow-safe clock/timer APIs. Configure bounded Activity timeouts and explicit retry policies, rather than inheriting provider SDK, Spring AI, and Temporal defaults that multiply attempts invisibly.
 
-The demonstration retains the original logical limits: 12 model calls, 24 tool calls, 120 seconds per model attempt, 10 seconds per tool attempt, and a 10-minute execution deadline starting when execution begins. Queue time is separate. The absolute deadline continues during downtime; an expired run stops instead of receiving a new budget after restart. Infrastructure attempts must be bounded and accounted for separately from logical calls. Uncertain model completion is visible and may produce duplicate cost; never invent exact usage for a lost response.
+The coding benchmark uses 40 logical model turns, 100 tool calls, 180 seconds per model attempt, 120 seconds per build/test, 180 seconds per evaluation, 10 seconds per file operation, and a 30-minute execution deadline. These supersede the incident-report limits. See the coding specification for separate infrastructure attempt caps. Queue time is separate. The absolute deadline continues during downtime; an expired run stops instead of receiving a new budget after restart. Infrastructure attempts must be bounded and accounted for separately from logical calls. Uncertain model completion is visible and may produce duplicate cost; never invent exact usage for a lost response.
 
 ## Commands and query consistency
 
@@ -67,9 +69,9 @@ Use real Temporal and PostgreSQL for process-crash/deployment acceptance. Workfl
 
 ## Review and implementation sequence
 
-1. Review this supporting design and ADR 0007; confirm the fixture benchmark and actual local/remote profiles.
+1. Review this supporting design and ADR 0007; use the accepted task-tracker benchmark and selected Ollama server; choose and probe an installed local model before live acceptance.
 2. Check Java, Spring Boot, Spring AI, Temporal SDK/server, and telemetry compatibility; pin supported versions in the implementation plan.
 3. Write a file-level plan for a recovery vertical slice: scripted model, deterministic tool/verifier, real service persistence, durable start, crash continuation, and deployment compatibility.
 4. Implement the approved slice, then add live adapters, operator views, and operational acceptance through scoped pull requests.
 
-No implementation plan or executable application is claimed by this document. The first slice must prove recovery before UI breadth or additional agent patterns.
+The [local coding implementation plan](../plans/2026-09-20-local-task-tracker-implementation.md) now supplies the reviewed-task candidate for implementation. No executable application exists yet. The first slice must prove recovery before UI breadth or additional agent patterns.
