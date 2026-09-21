@@ -18,7 +18,7 @@ Use Spring AI behind the model adapter, with framework-managed automatic tool ex
 
 PostgreSQL holds application configuration, command-delivery records, artifacts, and rebuildable operator projections. It does not independently schedule or advance workflow state. Temporal service persistence is operationally separate from application tables, even if both use PostgreSQL.
 
-Before implementation, specify the exact start/command delivery protocol, projection reconciliation, payload storage, activity retry rules, and worker deployment compatibility in a file-level plan. The revised design defines required behavior and acceptance evidence.
+The [local coding implementation plan](../plans/2026-09-20-local-task-tracker-implementation.md) proposes the start/command outbox, projection reconciliation, immutable source/blob storage, bounded attempt rules, and pinned worker deployments. It also adds an independently supervised container runner and evaluator for the accepted task-tracker benchmark. This ADR remains proposed pending review of those supporting choices.
 
 ## Alternatives
 

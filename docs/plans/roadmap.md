@@ -4,7 +4,7 @@ Status: Revised for Java/Spring Boot and first-version recovery; supporting desi
 
 Date: 2026-09-20
 
-This is a high-level roadmap, not an executable implementation plan. The [durable foundation](../specs/spring-boot-durable-foundation.md) governs execution semantics.
+This is a high-level roadmap. The first executable-task candidate is the [local coding implementation plan](2026-09-20-local-task-tracker-implementation.md), based on the [task-tracker benchmark](../specs/local-task-tracker-benchmark.md). The [durable foundation](../specs/spring-boot-durable-foundation.md) governs execution semantics.
 
 | Phase | Deliverable | Exit gate |
 |---|---|---|
@@ -15,14 +15,14 @@ This is a high-level roadmap, not an executable implementation plan. The [durabl
 
 ## First implementation plan
 
-First review the supporting Spring AI/Temporal design in ADR 0007, confirm the incident fixture benchmark, and select live local/remote profiles. Verify and pin compatible dependency versions. Then write a file-level implementation plan before coding.
+The task-tracker CLI and local Ollama are accepted. Review the supporting Spring AI/Temporal design in ADR 0007 and the linked file-level plan before coding. The plan starts with dependency compatibility and real-service setup, then proves workspace/runner/evaluator behavior, durable orchestration, and actual local completion. Select the installed model through a capability probe before live acceptance.
 
 ## Phase-one slices
 
-1. Prove a scripted bounded task on Spring Boot with real persistence, deterministic verification, recoverable start delivery, worker crash continuation, and deployment compatibility.
-2. Add local and authenticated remote model adapters with truthful usage, explicit retries, and secret-redaction contract tests.
-3. Add operator read models and reconciliation, console, cancellation, reconnect, and linked retries.
-4. Validate telemetry outages, service restart, uncertain Activity completion, actual local/remote benchmarks, and operating procedures.
+1. Deliver the local coding API/CLI slice: isolated persistent source, controlled build/test runner, independent evaluator, scripted and Ollama model adapters, durable commands, recovery/deployment checks, and real local benchmark evidence.
+2. Add the browser console with reconnect, cancellation, artifact inspection and linked retry under a separate plan.
+3. Add an authenticated remote provider and compare the same coding task against the local baseline.
+4. Validate the complete phase-wide operator experience and local/remote evidence before claiming all original P1 criteria complete.
 
 Instrumentation begins in slice one. Each slice is delivered through a pull request. The first slice proves recovery before expanding UI or agent patterns. Recurring execution and checkpoint forks require separate specifications.
 
