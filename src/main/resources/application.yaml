@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: continuous-agent-harness
+  profiles:
+    default: api
+  datasource:
+    url: ${HARNESS_DB_URL:jdbc:postgresql://127.0.0.1:55432/harness}
+    username: ${HARNESS_DB_USER:harness}
+    password: ${HARNESS_DB_PASSWORD:harness_dev}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 5000
+  flyway:
+    locations: classpath:db/migration
+    clean-disabled: true
+server:
+  address: 127.0.0.1
+  port: ${HARNESS_HTTP_PORT:8080}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+harness:
+  temporal:
+    target: ${HARNESS_TEMPORAL_TARGET:127.0.0.1:7233}
+    namespace: ${HARNESS_TEMPORAL_NAMESPACE:harness}
+---
+spring:
+  config:
+    activate:
+      on-profile: worker | runner
+  main:
+    web-application-type: none
+    keep-alive: true

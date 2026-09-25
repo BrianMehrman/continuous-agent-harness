@@ -1,0 +1,80 @@
+name: continuous-agent-harness
+
+services:
+  postgres:
+    image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres_dev}
+      HARNESS_DB_PASSWORD: ${HARNESS_DB_PASSWORD:-harness_dev}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
+      TEMPORAL_VISIBILITY_PASSWORD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
+    ports:
+      - "127.0.0.1:${HARNESS_DB_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./config/postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  temporal-schema:
+    image: temporalio/admin-tools:1.32.0@sha256:a9f84fb9a374b2374fe2e67c8efc0468ff3f1c66c8a0b14597ec86e349e62bca
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
+      TEMPORAL_VISIBILITY_PASSWORD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
+    volumes:
+      - ./config/temporal/setup-schema.sh:/scripts/setup-schema.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/setup-schema.sh"]
+
+  temporal:
+    image: temporalio/server:1.32.0@sha256:c3e752127759616bb1615e0f9ba0e21635aeb5fdeb922de4f371c350955f46ae
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
+      DBNAME: temporal
+      VISIBILITY_POSTGRES_USER: temporal_visibility
+      VISIBILITY_POSTGRES_PWD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
+      VISIBILITY_DBNAME: temporal_visibility
+      BIND_ON_IP: 0.0.0.0
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/harness.yaml
+      NUM_HISTORY_SHARDS: 4
+      SQL_MAX_CONNS: 5
+      SQL_MAX_IDLE_CONNS: 5
+      SQL_VIS_MAX_CONNS: 5
+      SQL_VIS_MAX_IDLE_CONNS: 5
+    volumes:
+      - ./config/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/harness.yaml:ro
+    ports:
+      - "127.0.0.1:${HARNESS_TEMPORAL_PORT:-7233}:7233"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "7233"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  temporal-namespace:
+    profiles: [setup]
+    image: temporalio/admin-tools:1.32.0@sha256:a9f84fb9a374b2374fe2e67c8efc0468ff3f1c66c8a0b14597ec86e349e62bca
+    depends_on:
+      temporal:
+        condition: service_healthy
+    volumes:
+      - ./config/temporal/setup-namespace.sh:/scripts/setup-namespace.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/setup-namespace.sh"]
+    restart: on-failure:5
+
+volumes:
+  postgres-data:

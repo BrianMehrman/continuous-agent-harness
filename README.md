@@ -13,7 +13,9 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-Architecture and delivery planning. The first benchmark is a Java task-tracker CLI built by a local Ollama model, with independent verification and recovery tests. The first implementation slice is operated through an API/CLI; the browser console and remote-provider comparison follow. This repository does not yet contain an executable application. The specifications describe intended behavior; ADRs marked **Proposed** are recommendations for review.
+Task 1 provides an executable Spring Boot foundation with API, worker, and runner profiles, PostgreSQL migrations, and a persistent local Temporal service. The first benchmark is a Java task-tracker CLI built by a local Ollama model, with independent verification and recovery tests. The coding loop, Ollama inference, and task-tracker benchmark implementation remain upcoming work. The first implementation slice is operated through an API/CLI; the browser console and remote-provider comparison follow.
+
+See [local development](docs/development.md) for startup, tests, configuration, and verified compatibility. The specifications describe the broader intended behavior; ADRs marked **Proposed** remain recommendations for review.
 
 ## Documentation
 

@@ -1,0 +1,6 @@
+# Resolved OCI digests; tested on linux/arm64 through Docker Desktop.
+# Compose pins service references directly; keep both files aligned on upgrades.
+POSTGRES_IMAGE=postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+TEMPORAL_IMAGE=temporalio/server:1.32.0@sha256:c3e752127759616bb1615e0f9ba0e21635aeb5fdeb922de4f371c350955f46ae
+TEMPORAL_TOOLS_IMAGE=temporalio/admin-tools:1.32.0@sha256:a9f84fb9a374b2374fe2e67c8efc0468ff3f1c66c8a0b14597ec86e349e62bca
+JAVA_IMAGE=eclipse-temurin:21-jdk@sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d
