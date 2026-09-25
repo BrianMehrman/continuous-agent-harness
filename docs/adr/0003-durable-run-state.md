@@ -1,6 +1,8 @@
 # ADR 0003: Persist run state and scoped configuration independently of conversations
 
-Status: Proposed
+Status: Historical proposal requiring revision
+
+The phase-one interruption-only behavior is superseded by the accepted recovery requirement in [ADR 0006](0006-java-spring-boot-foundation.md). [ADR 0007](0007-durable-execution-foundation.md) proposes the replacement execution ownership. Do not implement the original restart behavior.
 
 Date: 2026-09-20
 

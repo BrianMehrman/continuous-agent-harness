@@ -1,37 +1,37 @@
-# Sprint 01 — Observable local and remote execution
+# Sprint 01 — Durable local coding benchmark
 
 Status: Proposed; not started
 
 Phase: 1
 
-Spec: [Observable loop](../specs/phase-1-observable-loop.md)
+Spec: [Local task-tracker benchmark](../specs/local-task-tracker-benchmark.md)
+
+Plan: [Local coding implementation](../plans/2026-09-20-local-task-tracker-implementation.md)
+
+The older phase-wide acceptance matrix remains a roadmap; remote-provider parity and browser-console coverage are subsequent milestones.
 
 ## Objective
 
-Demonstrate a bounded task running through the same harness against local and remote model profiles, with a verified artifact and inspectable execution history.
+Have a local Ollama model implement a Java task-tracker CLI, independently verify its code, and demonstrate same-run continuation after crashes and compatible deployments. Operate the first slice through an API/CLI with inspectable history, immutable source snapshots, and controlled container execution.
 
 ## Prerequisites
 
-Review the architecture and phase-one acceptance criteria, choose the implementation stack and database, and select the local and remote acceptance profiles. Turn this scope into a file-level implementation plan before coding. This record makes no calendar or velocity commitment.
+Review the supporting Temporal/Spring AI design and the file-level plan. The CLI target, Java/Spring Boot backend, first-version recovery, and Ollama-first integration are accepted. Choose/probe the installed model before live acceptance. No calendar or velocity commitment is made.
 
 ## Work packages
 
-| Work | Acceptance coverage | State |
+| Work | Plan tasks | State |
 |---|---|---|
-| Fixture, deterministic verifier, scripted model, application/store foundation | P1-04, P1-10 | Not started |
-| Bounded execution and immutable run configuration | P1-03, P1-05 | Not started |
-| Model profiles and adapter contract coverage | P1-01, P1-02, P1-09, P1-12 | Not started |
-| Durable events, restart semantics, idempotent commands | P1-06, P1-11, P1-14 | Not started |
-| Console, cancellation, reconnect, linked retry | P1-07, P1-15 | Not started |
-| Telemetry, failure scenarios, live acceptance, operating guide | P1-08, P1-13; end-to-end P1-01 | Not started |
+| Verified runtime and durable services | 1 | Not started |
+| Immutable source snapshots and scoped edits | 2 | Not started |
+| Isolated runner and independent evaluator | 3–4 | Not started |
+| Local model, durable command delivery and coding loop | 5–7 | Not started |
+| Operator API/CLI | 8 | Not started |
+| Crashes, deployments, cancellation, telemetry and secret checks | 9 | Not started |
+| Actual local coding runs and evidence | 10 | Not started |
 
 ## Completion evidence
 
-- Automated acceptance matrix with meaningful behavior tests.
-- Local and remote run IDs, immutable profile references, verifier outcomes, latency, and usage availability.
-- Cancellation and restart demonstrations.
-- Correlated trace/log evidence and useful metrics, including exporter failure.
-- Reproducible setup and operating instructions.
-- Reviewed pull requests with no unresolved acceptance gaps represented as completed work.
+All C1–C12 benchmark criteria must have evidence. Record the installed local model digest, task/evaluator version and seed, run ID, source/JAR digests, verifier outcomes, timing, usage availability, and recovery/deployment results. Mock-only success does not complete this milestone. A benchmark failure remains a failure; do not repair the candidate by hand or weaken verification.
 
-Pause/resume, live messages, graph scheduling, and fleets are outside this sprint. If this scope exceeds one delivery interval, split it at the roadmap's vertical slices while retaining the phase-one exit gate.
+Remote-provider parity, the React console, pause/resume, live messages, graph scheduling and fleets are outside this slice. Preserve those roadmap commitments without reporting them complete.

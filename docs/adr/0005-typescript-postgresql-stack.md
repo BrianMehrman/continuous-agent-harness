@@ -1,6 +1,8 @@
 # ADR 0005: Use TypeScript and PostgreSQL as the application foundation
 
-Status: Proposed
+Status: Superseded by [ADR 0006](0006-java-spring-boot-foundation.md)
+
+Historical proposal retained for rationale; it is not the current stack baseline.
 
 Date: 2026-09-20
 
