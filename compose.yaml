@@ -5,10 +5,12 @@ services:
     image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres_dev}
-      HARNESS_DB_PASSWORD: ${HARNESS_DB_PASSWORD:-harness_dev}
-      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
-      TEMPORAL_VISIBILITY_PASSWORD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets:
+      - postgres_admin_password
+      - harness_db_password
+      - temporal_db_password
+      - temporal_visibility_password
     ports:
       - "127.0.0.1:${HARNESS_DB_PORT:-55432}:5432"
     volumes:
@@ -25,9 +27,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
-      TEMPORAL_VISIBILITY_PASSWORD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
+    secrets:
+      - temporal_db_password
+      - temporal_visibility_password
     volumes:
       - ./config/temporal/setup-schema.sh:/scripts/setup-schema.sh:ro
     entrypoint: ["/bin/sh", "/scripts/setup-schema.sh"]
@@ -42,10 +44,8 @@ services:
       DB_PORT: 5432
       POSTGRES_SEEDS: postgres
       POSTGRES_USER: temporal
-      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-temporal_dev}
       DBNAME: temporal
       VISIBILITY_POSTGRES_USER: temporal_visibility
-      VISIBILITY_POSTGRES_PWD: ${TEMPORAL_VISIBILITY_PASSWORD:-visibility_dev}
       VISIBILITY_DBNAME: temporal_visibility
       BIND_ON_IP: 0.0.0.0
       DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/harness.yaml
@@ -54,7 +54,13 @@ services:
       SQL_MAX_IDLE_CONNS: 5
       SQL_VIS_MAX_CONNS: 5
       SQL_VIS_MAX_IDLE_CONNS: 5
+    secrets:
+      - temporal_db_password
+      - temporal_visibility_password
+    entrypoint: ["/bin/sh", "/scripts/start-server.sh"]
+    command: []
     volumes:
+      - ./config/temporal/start-server.sh:/scripts/start-server.sh:ro
       - ./config/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/harness.yaml:ro
     ports:
       - "127.0.0.1:${HARNESS_TEMPORAL_PORT:-7233}:7233"
@@ -78,3 +84,13 @@ services:
 
 volumes:
   postgres-data:
+
+secrets:
+  postgres_admin_password:
+    file: ${HARNESS_SECRETS_ROOT:-./.secrets}/postgres_admin_password
+  harness_db_password:
+    file: ${HARNESS_SECRETS_ROOT:-./.secrets}/app/spring.datasource.password
+  temporal_db_password:
+    file: ${HARNESS_SECRETS_ROOT:-./.secrets}/temporal_db_password
+  temporal_visibility_password:
+    file: ${HARNESS_SECRETS_ROOT:-./.secrets}/temporal_visibility_password

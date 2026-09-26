@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:configtree:${HARNESS_SECRETS_DIR:./.secrets/app/}
   application:
     name: continuous-agent-harness
   profiles:
@@ -6,7 +8,6 @@ spring:
   datasource:
     url: ${HARNESS_DB_URL:jdbc:postgresql://127.0.0.1:55432/harness}
     username: ${HARNESS_DB_USER:harness}
-    password: ${HARNESS_DB_PASSWORD:harness_dev}
     hikari:
       maximum-pool-size: 5
       connection-timeout: 5000

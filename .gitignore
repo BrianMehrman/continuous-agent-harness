@@ -5,3 +5,5 @@
 .DS_Store
 /.gradle/
 /build/
+/.secrets/
+__pycache__/
