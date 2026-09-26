@@ -1,0 +1,2 @@
+# Server defaults; keep a real file because Temporal validates this path at startup.
+{}

@@ -17,12 +17,12 @@ Local inference is the first live integration. Remote-provider implementation an
 Implement `example.tasktracker.TaskTracker`, runnable as:
 
 ```text
-java -jar target/task-tracker.jar --data-dir /data add "Buy milk"
-java -jar target/task-tracker.jar --data-dir /data list
-java -jar target/task-tracker.jar --data-dir /data complete 1
+java -jar build/libs/task-tracker.jar --data-dir /data add "Buy milk"
+java -jar build/libs/task-tracker.jar --data-dir /data list
+java -jar build/libs/task-tracker.jar --data-dir /data complete 1
 ```
 
-The starter provides a locked Maven build, an empty class with `main`, and `REQUIREMENTS.md`. It contains no task-tracker implementation or evaluator assertions. The agent writes production Java, JUnit tests, and a usage README. No third-party production libraries are required; Java 21 standard APIs suffice. The locked build supplies a pinned JUnit test dependency and executable JAR manifest.
+The starter provides a locked Gradle build, an empty class with `main`, and `REQUIREMENTS.md`. It contains no task-tracker implementation or evaluator assertions. The agent writes production Java, JUnit tests, and a usage README. No third-party production libraries are required; Java 21 standard APIs suffice. The locked build supplies a pinned JUnit test dependency and executable JAR manifest.
 
 | Behavior | Exact contract |
 |---|---|
@@ -58,8 +58,8 @@ Writable paths are `src/main/java/**/*.java`, `src/test/java/**/*.java`, and `RE
 | `list_files` | Snapshot ID, optional relative prefix | Bounded sorted path list |
 | `read_file` | Snapshot ID, relative path | Content and SHA-256; explicit too-large/error response |
 | `write_file` | Snapshot ID, path, expected file hash or absent marker, replacement content | New immutable snapshot ID and digest |
-| `run_tests` | Snapshot ID | Trusted Maven test command exit, bounded logs, test count, report references |
-| `build` | Snapshot ID | Trusted Maven package command exit, bounded logs, candidate JAR reference |
+| `run_tests` | Snapshot ID | Trusted Gradle test command exit, bounded logs, test count, report references |
+| `build` | Snapshot ID | Trusted Gradle jar command exit, bounded logs, candidate JAR reference |
 | `submit` | Snapshot ID, brief summary | Independent evaluator verdict for that immutable snapshot |
 
 The harness injects run/invocation identity and the current snapshot. The model does not choose another run's IDs. Schema/capability checks precede execution. Invalid arguments become structured errors within the bounded loop; denied operations never execute. A submission failure returns sanitized case-level diagnostics, so the agent can revise within its remaining budget. A passing evaluator result ends the run. Ordinary text without a submit request does not establish completion; provide one protocol reminder, then fail repeated non-action responses.
@@ -72,13 +72,13 @@ A trusted runner component owns Docker operations and an invocation ledger. It r
 
 Before creating a container, commit its stable invocation ID, input hash, image digest, operation, and deadline. Derive a unique container name from the ID and verify matching labels before attaching to an existing one. Use `create`, stage only the snapshot, then `start`; recovering a created container repeats staging before start. Retain stopped containers until bounded output/artifacts and the exit status are durably recorded. Recover by inspecting the same container; do not blindly start another process. If evidence was lost, record an uncertain attempt before retrying in a fresh disposable environment. No build command has access to external side effects.
 
-Use non-root containers, no network, a read-only root filesystem, bounded scratch storage, 2 CPU / 1 GiB memory / 128-process limits, dropped capabilities, no-new-privileges, and no mounts for host source, home, credentials, or Docker socket. The trusted host runner can contact Docker; generated code cannot. Preload build dependencies into a pinned runner image; never run an agent-edited Maven file or download dependencies during a run. Cap captured output at 256 KiB per invocation with explicit truncation metadata.
+Use non-root containers, no network, a read-only root filesystem, bounded scratch storage, 2 CPU / 1 GiB memory / 128-process limits, dropped capabilities, no-new-privileges, and no mounts for host source, home, credentials, or Docker socket. The trusted host runner can contact Docker; generated code cannot. Preload build dependencies into a pinned runner image; never run an agent-edited Gradle build, settings, wrapper, lockfile, or init script or download dependencies during a run. The runner image must contain the pinned Gradle distribution, JDK, and dependency caches, validated by actual offline build and test invocations. Use bounded per-invocation writable Gradle user-home, project-cache, and output directories; do not mount host caches. The trusted build produces `build/libs/task-tracker.jar` and test reports under `build/test-results/test/`. Cap captured output at 256 KiB per invocation with explicit truncation metadata.
 
 A named-container reconciliation loop enforces deadlines and cancellation even while the Temporal worker is down. If the runner restarts, it scans only its owned labels and resumes supervision before accepting new requests. Docker unavailability prevents new execution and is reported; do not claim workloads are killed until the daemon confirms they stopped. Cancellation becomes terminal only after outstanding owned processes are stopped or a visible operational failure is recorded.
 
 ## Local model profile and bounds
 
-Selected local server: Ollama. Default endpoint: `http://127.0.0.1:11434`. The inspected machine has Docker, Java 21, Maven, Ollama, and installed local models. No inference benchmark was run during planning. Require an explicit `HARNESS_OLLAMA_MODEL` at live-run setup, inspect installed model metadata, and freeze its tag plus resolved full digest in a profile revision. Reject known cloud-backed models and missing local weights; never auto-pull or fall back to cloud. A locally listening Ollama server does not by itself prove inference is local.
+Selected local server: Ollama. Default endpoint: `http://127.0.0.1:11434`. The earlier environment inspection found Docker, Java 21, Ollama, and installed local models. Builds now use the pinned Gradle wrapper. No inference benchmark was run during planning. Require an explicit `HARNESS_OLLAMA_MODEL` at live-run setup, inspect installed model metadata, and freeze its tag plus resolved full digest in a profile revision. Reject known cloud-backed models and missing local weights; never auto-pull or fall back to cloud. A locally listening Ollama server does not by itself prove inference is local.
 
 Use Spring AI's low-level ChatModel API for one request per Activity, with native tool schemas and normalized response handling. Do not attach a framework agent loop. Test tool-call argument round-tripping, multiple tool calls, tool-result correlation, usage absence, context overflow and timeout behavior against an HTTP fixture server; require a live tool capability probe for the selected installed model before a coding run. Capture the effective context/generation settings and software versions with each run. Temperature 0 is a baseline setting, not a determinism guarantee.
 
