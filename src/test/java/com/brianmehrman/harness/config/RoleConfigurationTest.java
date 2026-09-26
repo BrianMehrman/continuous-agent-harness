@@ -13,7 +13,50 @@ class RoleConfigurationTest {
     private final ApplicationContextRunner contexts = new ApplicationContextRunner()
             .withUserConfiguration(HarnessApplication.class)
             .withPropertyValues("spring.flyway.enabled=false",
+                    "spring.datasource.password=test-only",
                     "spring.datasource.url=jdbc:postgresql://127.0.0.1:55432/harness");
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"api,worker", "api,runner", "worker,runner", "api,worker,runner", "unrelated"})
+    void rejectsInvalidRoleSelection(String profiles) {
+        contexts.withPropertyValues("spring.profiles.active=" + profiles).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasMessageContaining("Exactly one process role");
+        });
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "   "})
+    void rejectsEmptyDatabasePassword(String password) {
+        contexts.withPropertyValues("spring.profiles.active=api", "spring.datasource.password=" + password)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasMessageContaining("Database password is required");
+                });
+    }
+
+    @Test
+    void acceptsAnAdditionalNonRoleProfile() {
+        contexts.withPropertyValues("spring.profiles.active=runner,local").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).doesNotHaveBean(WorkflowClient.class);
+        });
+    }
+
+    @Test
+    void rejectsMissingDatabasePassword() {
+        new ApplicationContextRunner().withUserConfiguration(HarnessApplication.class)
+                .withPropertyValues("spring.profiles.active=api", "spring.flyway.enabled=false")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasMessageContaining("Database password is required");
+                });
+    }
+
+    @Test
+    void acceptsDefaultApiRole() {
+        contexts.withPropertyValues("spring.profiles.default=api").run(context -> assertThat(context).hasNotFailed());
+    }
 
     @Test
     void runnerDoesNotCreateTemporalResources() {
