@@ -22,7 +22,7 @@ Use Java and Spring Boot for the harness. Automatic continuation after crashes a
 | Application storage | PostgreSQL | Proposed; configuration, command delivery, artifacts, query projections |
 | Schema migrations | Flyway SQL migrations | Proposed; descriptive names such as `V1__create_model_profiles.sql`; verify history entries |
 | Operator console | React, TypeScript, Vite | Proposed; generated API contracts and runtime validation |
-| Java build | Maven wrapper | Proposed; reproducible build and dependency management |
+| Java build | Gradle wrapper with Groovy DSL | Accepted; pinned distribution, Java 21 toolchain, and dependency locking |
 | Tests | JUnit, Spring Boot Test, Testcontainers, Temporal test tooling | Proposed; real-service crash/deployment tests in addition to unit tests |
 | Browser tests | Playwright | Proposed; start, reconnect, cancellation, recovery visibility |
 | Diagnostics | Spring observability, OpenTelemetry-compatible export, structured logs, Grafana LGTM | Proposed; bounded export and correlated identifiers |
