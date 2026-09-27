@@ -141,3 +141,23 @@ Development stays in the primary checkout on a feature branch, rebased onto the 
 On 2026-09-26, a fresh Compose project initialized PostgreSQL and Temporal from generated secret files. The full build passed 13 unit tests and 3 real-service integration tests; two Python tests verified secret permissions, distinct values, no printed credentials, overwrite refusal, and symlink refusal. Run those tests with `python3 -m unittest discover -s scripts -p 'test_*.py'`.
 
 The packaged API returned health UP with file credentials. Packaged startup rejected an absent credential and conflicting roles before database pool startup. A deliberately altered dependency checksum failed verification; the reviewed metadata was restored before the successful final build. Nine critical JAR hashes were independently matched to fresh Maven Central downloads, and metadata contains no trusted-artifact bypasses. This establishes a reviewed checksum baseline, not an independent publisher signature audit. Existing developer database credentials were not rotated.
+
+## Immutable workspaces (Task 2)
+
+`WorkspaceStore` seeds the `task-tracker-v1` benchmark, returns sorted immutable file maps scoped to a run, and writes new snapshots with an expected file digest (`absent` for a new file). Snapshot IDs are SHA-256 of versioned, length-prefixed UTF-8 paths and contents in Java string lexical order. A write's input hash also covers run/invocation identity, parent, path, expected digest, and content.
+
+`V2__create_workspace_snapshots.sql` adds snapshots, run ownership links, immutable per-run starter selection, and write receipts. The per-run starter record preserves the original seed across retries/deployments. Receipts record parent/result lineage, allowing identical file content to be deduplicated across multiple parents and runs. Snapshot insertion, ownership, and receipt commit share a transaction; conflicting concurrent invocation reuse rolls back speculative inserts. There is no mutable workspace head and no delete operation. Only the future Workflow adopts a returned snapshot.
+
+Writes permit Java production/test files and `README.md`, with 64 files, 64 KiB per file, and 1 MiB total UTF-8 content including readable starter assets. Validation rejects traversal, non-normalized paths, control characters, invalid UTF-8, protected build edits, and file/directory collisions. Filesystem import checks reject symlinks and nonregular files. Future tar staging must independently reject links/nonregular entry types and enforce these checks inside its isolated staging root; the source store does not extract archives.
+
+The starter lives in `benchmarks/task-tracker-v1/starter/` and is packaged with the application. Changes to trusted starter behavior/build inputs require a new benchmark version. It contains the complete public behavior contract, a pinned plain-Java Gradle build and JUnit 6.0.3, and an entry point that throws `UnsupportedOperationException`. It deliberately contains no solution or agent-authored tests. `./gradlew -p benchmarks/task-tracker-v1/starter jar` produces its unimplemented JAR. The binary wrapper JAR stays a trusted runner asset; snapshots expose its checksum, and seeding verifies that checksum against the packaged binary. The runner must supply that exact binary. Generated build/cache directories and evaluator fixtures are not imported.
+
+After starting local services and configuring secret files, run:
+
+```sh
+./gradlew test --tests '*WorkspacePathPolicyTest' integrationTest --tests '*WorkspaceStoreIT'
+```
+
+Task 2 verification on 2026-09-27 passed 49 harness tests (37 unit, 12 real-service integration), including concurrent matching/conflicting invocations, ownership, stale hashes, quotas, and both orders of path collision. A test-only PostgreSQL trigger paused a writer after snapshot insertion; terminating that backend proved rollback of the snapshot and receipt, followed by a successful retry. Run these integration tests against a development/test database where the application role can create its test-only trigger and terminate its own backend sessions. Test rows use fresh run IDs and remain in the test database; no production cleanup/retention policy is implied.
+
+A separate, non-agent-visible JUnit smoke fixture proved the starter compiles/tests offline and still has no implementation. All 21 starter dependency artifact/metadata hashes matched the foundation's reviewed verification metadata. This does not yet prove the Task 3 runner's network/resource isolation or any live model capability.

@@ -10,7 +10,7 @@
 
 **Spec:** [Local task-tracker benchmark](../specs/local-task-tracker-benchmark.md), plus [durable foundation](../specs/spring-boot-durable-foundation.md) where not superseded.
 
-**Status:** Task 1 foundation implemented; subsequent tasks remain planned. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
+**Status:** Tasks 1–2 foundation and immutable workspaces implemented; subsequent tasks remain planned. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
 
 ## Global constraints
 
@@ -188,8 +188,8 @@ Here `jdbc` is an injected `JdbcTemplate`; `temporalService` is the configured `
 
 **Interfaces:** Implement the workspace contracts above. A source snapshot has a sorted path→UTF-8-content mapping. Hash a version marker plus length-prefixed UTF-8 path/content bytes in lexical path order, not ambiguous concatenated text. Validate run ownership on reads even though content is deduplicated globally.
 
-- [ ] Add the locked target Gradle plain-Java build using a main class `example.tasktracker.TaskTracker`, JAR output `build/libs/task-tracker.jar`, Java release 21, and a pinned JUnit test dependency. Copy the full behavior table from the spec into REQUIREMENTS.md. The starter main throws `UnsupportedOperationException("Implement the requirements")`; no reference implementation is present.
-- [ ] Write database tests using a seeded starter and the actual PostgreSQL schema. Declare `store` as the injected `WorkspaceStore` and use fresh run IDs per test:
+- [x] Add the locked target Gradle plain-Java build using a main class `example.tasktracker.TaskTracker`, JAR output `build/libs/task-tracker.jar`, Java release 21, and a pinned JUnit test dependency. Copy the full behavior table from the spec into REQUIREMENTS.md. The starter main throws `UnsupportedOperationException("Implement the requirements")`; no reference implementation is present.
+- [x] Write database tests using a seeded starter and the actual PostgreSQL schema. Declare `store` as the injected `WorkspaceStore` and use fresh run IDs per test:
 
 ```java
 @Test void repeatedWriteReturnsOneSnapshot() {
@@ -207,11 +207,13 @@ Here `jdbc` is an injected `JdbcTemplate`; `temporalService` is the configured `
 
 Add parameterized cases for `../`, absolute paths, backslashes, forbidden build edits, oversized files, quota overflow, wrong expected hashes, and cross-run reads. Ensure future tar staging rejects symlinks rather than just lexical paths.
 
-- [ ] Run `./gradlew test --tests '*WorkspacePathPolicyTest' integrationTest --tests '*WorkspaceStoreIT'`; confirm the missing implementation fails.
-- [ ] Create tables `workspace_snapshot(sha256 PK, files_json, byte_count, file_count)`, `run_snapshot(run_id, sha256, PRIMARY KEY(run_id,sha256))`, and `workspace_write_receipt(run_id, invocation_id, input_sha256, result_sha256, PRIMARY KEY(run_id,invocation_id))`. All content/digest validation and receipt insertion happen in one transaction. A unique-key race reads the existing receipt and compares the input hash; never overwrite it.
-- [ ] Implement path rules and canonical hashing, immutable seed import and write transactions. The expected file hash is checked against the supplied parent snapshot; there is no mutable workspace head in this store. Write receipts cannot change which snapshot the Workflow has adopted.
-- [ ] Run the targeted tests with a real database, including a connection-loss rollback test between snapshot insertion and receipt insertion. Confirm old snapshots and duplicate responses remain stable.
-- [ ] Commit `feat: persist immutable coding workspaces`.
+- [x] Run `./gradlew test --tests '*WorkspacePathPolicyTest' integrationTest --tests '*WorkspaceStoreIT'`; confirm the missing implementation fails.
+- [x] Create tables `workspace_snapshot(sha256 PK, files_json, byte_count, file_count)`, `run_snapshot(run_id, sha256, PRIMARY KEY(run_id,sha256))`, `run_workspace(run_id PK, benchmark_version, seed_sha256)` for stable run seeds, and `workspace_write_receipt(run_id, invocation_id, input_sha256, parent_sha256, result_sha256, PRIMARY KEY(run_id,invocation_id))`. All content/digest validation and receipt insertion happen in one transaction. A unique-key race reads the existing receipt and compares the input hash; never overwrite it.
+- [x] Implement path rules and canonical hashing, immutable seed import and write transactions. The expected file hash is checked against the supplied parent snapshot; there is no mutable workspace head in this store. Write receipts cannot change which snapshot the Workflow has adopted.
+- [x] Run the targeted tests with a real database, including a connection-loss rollback test between snapshot insertion and receipt insertion. Confirm old snapshots and duplicate responses remain stable.
+- [x] Commit `feat: persist immutable coding workspaces`.
+
+Implementation notes: `BenchmarkStarter` packages the trusted asset manifest; the binary wrapper stays outside the UTF-8 file map, represented by a verified checksum. Receipt parent/result references carry lineage independently of globally deduplicated content. File/directory collisions are rejected. See [development evidence](../development.md#immutable-workspaces-task-2).
 
 ## Task 3: Build a reconciled, isolated command runner
 

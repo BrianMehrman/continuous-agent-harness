@@ -1,0 +1,23 @@
+plugins { id 'java' }
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+repositories { mavenCentral() }
+dependencies {
+    testImplementation platform('org.junit:junit-bom:6.0.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+dependencyLocking { lockAllConfigurations() }
+test {
+    useJUnitPlatform()
+    failOnNoDiscoveredTests = true
+    filter { failOnNoMatchingTests = true }
+}
+jar {
+    archiveFileName = 'task-tracker.jar'
+    manifest { attributes 'Main-Class': 'example.tasktracker.TaskTracker' }
+}
