@@ -58,3 +58,20 @@ def integrationTest = tasks.register('integrationTest', Test) {
 
 tasks.named('check') { dependsOn integrationTest }
 tasks.named('jar') { enabled = false }
+
+// Trusted benchmark assets travel with the application; generated outputs never do.
+tasks.named('processResources') {
+    from('benchmarks/task-tracker-v1/starter') {
+        into 'benchmarks/task-tracker-v1/starter'
+        exclude 'build/**', '.gradle/**'
+        eachFile {
+            def cursor = file.toPath()
+            while (cursor != null) {
+                if (java.nio.file.Files.isSymbolicLink(cursor)) {
+                    throw new GradleException('Benchmark assets must not contain symbolic links')
+                }
+                cursor = cursor.parent
+            }
+        }
+    }
+}

@@ -49,7 +49,7 @@ Do not ship a reference solution into the agent workspace or prompt. Private har
 
 ## Workspace and tools
 
-Use immutable workspace snapshots in application PostgreSQL, not a shared mutable checkout. A snapshot maps normalized relative paths to UTF-8 content, has a canonical content hash, and references its parent. The Workflow keeps only snapshot IDs and compact tool receipts; application blobs hold files, bounded logs, and conversation payloads. This first benchmark caps source at 1 MiB total, 64 KiB per file, and 64 files. Snapshot/blob retention cannot remove data referenced by active runs.
+Use immutable workspace snapshots in application PostgreSQL, not a shared mutable checkout. A snapshot maps normalized relative paths to UTF-8 content, has a canonical content hash, and records parent/result lineage in per-run write receipts. This preserves lineage when identical content is reached from different parents. The Workflow keeps only snapshot IDs and compact tool receipts; application blobs hold files, bounded logs, and conversation payloads. This first benchmark caps source at 1 MiB total, 64 KiB per file, and 64 files. Snapshot/blob retention cannot remove data referenced by active runs.
 
 Writable paths are `src/main/java/**/*.java`, `src/test/java/**/*.java`, and `README.md`. The starter build and REQUIREMENTS.md are readable but immutable. Reject absolute paths, `..`, backslashes, control characters, symlinks and nonregular entries. There is no delete or arbitrary shell tool in this first version.
 
