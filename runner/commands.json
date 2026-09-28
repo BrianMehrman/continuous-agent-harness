@@ -1,0 +1,46 @@
+{
+  "protocol": "HARNESS_RESULT_V1",
+  "operations": {
+    "BUILD": "jar",
+    "TEST": "test"
+  },
+  "project": "/work/project",
+  "source": "/work/input",
+  "artifact": "/work/build/libs/task-tracker.jar",
+  "deadlineEnvironment": "HARNESS_DEADLINE_EPOCH_MILLIS",
+  "operationEnvironment": "HARNESS_OPERATION",
+  "maxDurationSeconds": 120,
+  "maxOutputBytes": 262144,
+  "maxArtifactBytes": 16777216,
+  "user": "1000:1000",
+  "cpu": 2,
+  "memoryBytes": 1073741824,
+  "pids": 128,
+  "network": "none",
+  "readOnly": true,
+  "tmpfs": {
+    "/work": "rw,nosuid,nodev,size=512m,mode=1777",
+    "/tmp": "rw,nosuid,nodev,size=64m,mode=1777",
+    "/control": "rw,nosuid,nodev,size=1m,mode=0755"
+  },
+  "gradleArguments": [
+    "--offline",
+    "--no-daemon",
+    "--console=plain",
+    "--max-workers=1",
+    "--project-cache-dir",
+    "/work/cache",
+    "-p",
+    "/work/project"
+  ],
+  "maxTestReportBytes": 4194304,
+  "testReportFormat": "zip",
+  "resultFields": [
+    "HARNESS_RESULT_V1",
+    "base64Logs",
+    "logsTruncated",
+    "base64Jar",
+    "artifactError",
+    "base64TestReportsZip"
+  ]
+}

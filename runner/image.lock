@@ -1,0 +1,2 @@
+# Actual locally built immutable image ID. Rebuild with scripts/build-runner-image.py.
+RUNNER_IMAGE=sha256:76f771165ff92f25e643fb27d25b98caf1ec2102908187221d817e8364f58cb1

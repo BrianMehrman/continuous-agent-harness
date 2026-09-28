@@ -26,6 +26,9 @@ management:
     health:
       show-details: never
 harness:
+  runner:
+    enabled: ${HARNESS_RUNNER_ENABLED:false}
+    image: ${HARNESS_RUNNER_IMAGE:}
   temporal:
     target: ${HARNESS_TEMPORAL_TARGET:127.0.0.1:7233}
     namespace: ${HARNESS_TEMPORAL_NAMESPACE:harness}
