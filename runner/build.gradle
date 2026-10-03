@@ -1,0 +1,12 @@
+sourceSets {
+    main.java.setSrcDirs(['/work/input/src/main/java'])
+    test.java.setSrcDirs(['/work/input/src/test/java'])
+}
+layout.buildDirectory = file('/work/build')
+tasks.withType(JavaCompile).configureEach { options.fork = false }
+test {
+    testLogging.showStandardStreams = true
+    maxHeapSize = '128m'
+    maxParallelForks = 1
+    jvmArgs '-XX:ActiveProcessorCount=2'
+}

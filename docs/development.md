@@ -10,6 +10,8 @@ For a new database, create local credentials first:
 python3 scripts/create-local-secrets.py
 docker compose up -d --wait postgres temporal
 docker compose run --rm --no-deps temporal-namespace
+python3 scripts/build-runner-image.py
+export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
 ./gradlew build
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar
 ```
@@ -22,7 +24,7 @@ curl --fail http://127.0.0.1:8080/actuator/health
 
 Expect HTTP 200 and `status: UP`. This is application/database health; the integration suite independently verifies Temporal connectivity and workflow execution. The namespace setup command is safe to repeat and creates `harness` with seven-day retention. It is a separate setup job so Compose readiness waits only for persistent services. PostgreSQL readiness uses TCP to avoid accepting its temporary initialization server.
 
-`./gradlew test` runs the three role configuration tests without Docker. `./gradlew build` additionally runs three integration tests against real PostgreSQL and Temporal: migration and profile persistence through an independent connection, database access isolation, and a workflow payload round trip. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
+`./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs real PostgreSQL, Temporal, workspace, and runner recovery/isolation integration tests. Build the runner image first and export `HARNESS_RUNNER_IMAGE`; runner integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
 
 `./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*InfrastructureIT'`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
 
@@ -40,7 +42,7 @@ java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profil
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
 ```
 
-`api` is the default and exposes loopback HTTP with a Temporal client. `worker` creates a Temporal client and worker factory. The factory remains idle until Task 7 registers workflows and starts polling. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot; their actual workloads arrive in later tasks. All three currently configure the application database and run Flyway at startup.
+`api` is the default and exposes loopback HTTP with a Temporal client. `worker` creates a Temporal client and worker factory. The factory remains idle until Task 7 registers workflows and starts polling. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`; worker workflows arrive in Task 7. All three currently configure the application database and run Flyway at startup.
 
 Spring AI's Ollama library is included without model auto-configuration. No model request or model download occurs in this foundation.
 
@@ -161,3 +163,46 @@ After starting local services and configuring secret files, run:
 Task 2 verification on 2026-09-27 passed 49 harness tests (37 unit, 12 real-service integration), including concurrent matching/conflicting invocations, ownership, stale hashes, quotas, and both orders of path collision. A test-only PostgreSQL trigger paused a writer after snapshot insertion; terminating that backend proved rollback of the snapshot and receipt, followed by a successful retry. Run these integration tests against a development/test database where the application role can create its test-only trigger and terminate its own backend sessions. Test rows use fresh run IDs and remain in the test database; no production cleanup/retention policy is implied.
 
 A separate, non-agent-visible JUnit smoke fixture proved the starter compiles/tests offline and still has no implementation. All 21 starter dependency artifact/metadata hashes matched the foundation's reviewed verification metadata. This does not yet prove the Task 3 runner's network/resource isolation or any live model capability.
+
+
+## Isolated build/test runner (Task 3)
+
+Build the trusted image once (network access required while building), then select its immutable local image ID:
+
+```sh
+python3 scripts/build-runner-image.py
+export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
+./gradlew bootJar
+HARNESS_RUNNER_ENABLED=true java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
+```
+
+The builder sends an explicit allowlist of runner/build assets as the Docker context. It never sends the checkout, `.secrets`, host caches, or candidate solution files. The base JDK and Gradle distribution are checksum-pinned; dependencies are locked and verified. `runner/image.lock` records the actual local image ID, which is platform/build specific. Rebuild on another machine and select its generated ID; no image has been published to a registry. Admission rejects mutable tags. Existing invocations retain their original image ID across deployments; keep those images until their invocations finish.
+
+`Runner.ensureStarted` durably admits BUILD or TEST and returns without waiting for Docker. EVALUATE remains unsupported until Task 4. Identical invocation IDs reuse the stored request/result; changed input is rejected. Deadlines are absolute and at most 120 seconds from admission. There is no HTTP submission endpoint yet; Task 5 will connect tool calls to this Java interface. All submitters must configure the image ID, while only the runner role with polling enabled needs Docker access.
+
+`V3__create_runner_invocations.sql` stores invocation state, input/snapshot/image provenance, attempts, cancellation, lease ownership and bounded result blobs. The supervisor polls every second. It holds a PostgreSQL row lock through each bounded reconciliation step, with `SKIP LOCKED` for competing supervisors; the lock fences ownership in addition to recording the lease. Names and ownership/input labels make Docker creation recoverable. Docker operations use fixed argument lists and validated source tar streams. Mismatched container ownership fails visibly without stopping or removing that container.
+
+Each candidate runs as UID/GID 1000 with no network, no host mounts, a read-only root, no capabilities, no-new-privileges, two CPUs, 1 GiB memory (no swap), 128 PIDs, and bounded scratch tmpfs. It receives no database credentials or Docker socket. The trusted stage helper runs as root before candidate execution, extracts only supervisor-generated regular-file archives, and protects source/build/control files with root ownership. A root-owned readiness marker and stage lock prevent restaging once execution begins.
+
+Two implementation details are required by the actual Docker/Gradle behavior:
+
+- A tmpfs cannot be populated in a stopped container and disappears when it exits. The container therefore starts a waiting launcher; the supervisor stages source and releases the protected readiness marker. The logical `AFTER_START` boundary means candidate execution has been released.
+- Gradle requires a writable project directory. `/work/project` is root-owned with the sticky bit, and its fixed build/settings/properties/lock/verification files are root-owned and read-only. Candidate code cannot replace them. Gradle caches, output and reports remain inside the bounded container scratch space.
+
+The launcher runs fixed offline Gradle `jar`/`test` commands, drains stdout/stderr while retaining at most 256 KiB, and caps JARs at 16 MiB. Candidate XML reports are retained as a ZIP capped at 4 MiB; they are untrusted diagnostic output, not benchmark verdicts. A strict one-line envelope carries logs, truncation, artifact and reports into bounded Docker logs (32 MiB, one file, compression disabled). This preserves evidence after container exit/restart without an unbounded writable volume. The supervisor uses Docker's exit state, validates the envelope and persists blobs/result in one transaction before cleanup. Independent semantic evaluation is Task 4.
+
+Cancellation/deadline receipts require confirmation that the owned execution is stopped. Docker outages defer reconciliation instead of pretending termination succeeded. A completed build retains its result if the supervisor returns after its deadline. Missing container evidence permits one fresh attempt and marks the final receipt uncertain; a second loss is terminal UNCERTAIN. Compilation/test failures do not consume an infrastructure retry. Containers are removed only after durable receipt commit. Retention of database blobs/test rows is not yet automated.
+
+Run the recovery suite against development/test services:
+
+```sh
+python3 scripts/runner_fault_test.py --all-boundaries
+```
+
+It starts actual runner JVMs, kills them at five boundaries, restarts them, checks durable receipts and Docker creation events, and exercises cancellation, downtime deadlines, evidence loss, competing supervisors, compilation failure, network/filesystem isolation, cgroup limits and stdout truncation. Fault injection is implemented only in test sources under the `recovery-test` profile; it is absent from the packaged application. Logs/markers stay under ignored `target/runner-tests/`. Normal `integrationTest` includes these tests and therefore requires the runner image.
+
+Task 3 also supplies the starter's previously missing POM checksums. Fresh image resolution fetched POM metadata that the warm local Gradle cache had not needed; checksums were verified against Maven Central without disabling verification. Build behavior and dependency versions in the starter are unchanged.
+
+Security verification: 30 newly added dependency artifact/metadata SHA-256 values matched fresh Maven Central downloads. The publishable tree contained no matches for the eight local credential values (including base64 encodings) or common token/private-key patterns. The packaged application contains no test fault injector or local secret entries. Independent review found an oversized-output retry loop; overflow is now terminal FAILED, with both unit and actual-container regression coverage.
+
+Task 3 verification on 2026-09-27: the full Gradle build passed 74 Java tests (42 unit, 32 integration), including 18 real-process recovery/isolation cases, with no failures or skips. Two Python secret-permission tests also passed. The final snapshot-reuse admission assertion passed in a targeted rerun. The image was built and tested on Docker Desktop Linux/arm64; other runtime/platform combinations require their own image build and integration run.
