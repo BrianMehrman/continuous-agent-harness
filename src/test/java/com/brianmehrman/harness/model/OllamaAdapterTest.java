@@ -107,6 +107,8 @@ class OllamaAdapterTest {
         assertEquals(4096, sent.path("options").path("num_ctx").asInt());
         assertEquals(512, sent.path("options").path("num_predict").asInt());
         assertFalse(sent.path("options").path("truncate").asBoolean());
+        assertFalse(sent.path("truncate").asBoolean(true));
+        assertFalse(sent.path("shift").asBoolean(true));
     }
 
     @Test void multipleCallsReceiveUniqueStableIdsAndPriorResultsStayOrdered() {
@@ -122,14 +124,17 @@ class OllamaAdapterTest {
         assertEquals("ok", sent.get(3).path("content").asText());
     }
 
-    @Test void rejectsContextOverflowBeforeChatAndDoesNotRetryHttpFailure() {
+    @Test void reportsServerContextOverflowWithoutTruncationAndDoesNotRetryHttpFailure() {
         var tooLarge = requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"" + "x".repeat(11_000) + "\"}]}");
-        assertThrows(IllegalArgumentException.class, () -> new OllamaModelAdapter(blobs, profile()).call(tooLarge));
-        assertEquals(0, chatRequests.get());
+        responseCode = 400;
+        serverReplyJson("{\"error\":\"prompt exceeds context window\"}");
+        assertEquals("MODEL_CONTEXT_OVERFLOW", assertThrows(IllegalArgumentException.class,
+                () -> new OllamaModelAdapter(blobs, profile()).call(tooLarge)).getMessage());
+        assertEquals(1, chatRequests.get());
         responseCode = 503;
         assertThrows(RuntimeException.class, () -> new OllamaModelAdapter(blobs, profile()).call(
                 requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}")));
-        assertEquals(1, chatRequests.get());
+        assertEquals(2, chatRequests.get());
     }
 
     @Test void rejectsUnmatchedToolResultBeforeContactingModel() {

@@ -25,6 +25,8 @@ public final class ScriptedModelAdapter implements ModelAdapter {
 
     @Override public ModelReply call(ModelCall request) {
         Objects.requireNonNull(request);
+        if (request.deadlineEpochMillis() <= System.currentTimeMillis())
+            throw new IllegalStateException("MODEL_DEADLINE_EXCEEDED");
         int number = calls.incrementAndGet();
         if (number > replies.size()) throw new IllegalStateException("SCRIPTED_REPLIES_EXHAUSTED");
         Barrier current = barrier;

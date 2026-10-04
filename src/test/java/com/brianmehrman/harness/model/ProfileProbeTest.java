@@ -19,6 +19,7 @@ class ProfileProbeTest {
     private volatile boolean acknowledge = true;
     private volatile boolean localModelfile = true;
     private volatile long tagsDelayMillis;
+    private volatile boolean replayedNativeCall;
 
     @BeforeEach void start() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -35,10 +36,17 @@ class ProfileProbeTest {
         server.createContext("/api/chat", exchange -> {
             int count = chats.incrementAndGet();
             String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (count == 2) {
+                var sent = tools.jackson.databind.json.JsonMapper.builder().build().readTree(request);
+                var call = sent.path("messages").get(1).path("tool_calls").get(0);
+                replayedNativeCall = "probe-1".equals(call.path("id").asText())
+                        && "list_files".equals(call.path("function").path("name").asText())
+                        && "native-argument".equals(call.path("function").path("arguments").path("prefix").asText());
+            }
             var marker = java.util.regex.Pattern.compile("HARNESS_PROBE_[a-f0-9]{32}").matcher(request);
             String echo = marker.find() ? marker.group() : "missing marker";
             String response = count == 1
-                    ? "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"probe-1\",\"function\":{\"name\":\"list_files\",\"arguments\":{}}}]},\"done\":true}"
+                    ? "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"probe-1\",\"function\":{\"name\":\"list_files\",\"arguments\":{\"prefix\":\"native-argument\"}}}]},\"done\":true}"
                     : "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"" + (acknowledge ? echo : "generic answer") + "\"},\"done\":true}";
             reply(exchange, response);
         });
@@ -61,6 +69,7 @@ class ProfileProbeTest {
         assertEquals(digest, profile.fullDigest());
         assertTrue(profile.toolRoundTripVerified());
         assertEquals(2, chats.get());
+        assertTrue(replayedNativeCall);
         digest = "b".repeat(64);
         assertEquals("PROFILE_DRIFT", assertThrows(IllegalStateException.class,
                 () -> probe().verifyDigest(profile)).getMessage());

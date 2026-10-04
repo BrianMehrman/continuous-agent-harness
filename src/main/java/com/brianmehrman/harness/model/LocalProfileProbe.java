@@ -97,8 +97,10 @@ public final class LocalProfileProbe {
         JsonNode calls = first.path("message").path("tool_calls");
         if (!calls.isArray() || calls.size() != 1 || !"list_files".equals(calls.get(0).path("function").path("name").asText()))
             throw new IllegalStateException("MODEL_TOOL_PROBE_FAILED");
-        var assistant = Map.of("role", "assistant", "content", "", "tool_calls", List.of(Map.of(
-                "function", Map.of("name", "list_files", "arguments", Map.of()))));
+        JsonNode assistant = first.path("message");
+        if (!"assistant".equals(assistant.path("role").asText()) ||
+                !calls.get(0).path("function").path("arguments").isObject())
+            throw new IllegalStateException("MODEL_TOOL_PROBE_FAILED");
         String marker = "HARNESS_PROBE_" + java.util.UUID.randomUUID().toString().replace("-", "");
         var result = Map.of("role", "tool", "content", json.writeValueAsString(Map.of("marker", marker, "paths", List.of())));
         JsonNode second = post(Map.of("model", tag, "stream", false, "messages", List.of(user, assistant, result),

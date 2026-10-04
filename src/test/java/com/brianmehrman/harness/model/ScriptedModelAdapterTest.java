@@ -9,6 +9,14 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class ScriptedModelAdapterTest {
+    @Test void expiredDeadlineDoesNotConsumeFixture() {
+        var reply = new ModelReply("step", List.of(), null, null, "stop");
+        var adapter = new ScriptedModelAdapter(List.of(reply));
+        var expired = new ModelCall("run", "turn", 1, "scripted", "blob", System.currentTimeMillis() - 1);
+        assertEquals("MODEL_DEADLINE_EXCEEDED", assertThrows(IllegalStateException.class,
+                () -> adapter.call(expired)).getMessage());
+        assertEquals(0, adapter.callCount());
+    }
     @Test void returnsFixturesInOrderAndCountsCalls() {
         var first = new ModelReply("step one", List.of(), null, null, "stop");
         var second = new ModelReply("step two", List.of(), 2L, 1L, "stop");

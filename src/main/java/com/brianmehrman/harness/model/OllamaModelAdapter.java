@@ -19,6 +19,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.retry.NonTransientAiException;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.core.retry.RetryPolicy;
@@ -27,9 +28,11 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** A single, non-streaming local model request. Tool callbacks are definitions only. */
 public final class OllamaModelAdapter implements ModelAdapter {
@@ -59,8 +62,6 @@ public final class OllamaModelAdapter implements ModelAdapter {
         byte[] bytes = blobs.get(request.conversationBlobId());
         if (bytes.length > MAX_CONVERSATION_BYTES) throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
         List<Message> messages = messages(bytes);
-        if (bytes.length / 3 + profile.outputTokens() > profile.contextTokens())
-            throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
         probe.verifyDigest(profile, request.deadlineEpochMillis());
         remaining = request.deadlineEpochMillis() - System.currentTimeMillis();
         if (remaining <= 0) throw new IllegalStateException("MODEL_DEADLINE_EXCEEDED");
@@ -69,7 +70,15 @@ public final class OllamaModelAdapter implements ModelAdapter {
                 .connectTimeout(Duration.ofMillis(Math.min(remaining, 5000))).build());
         factory.setReadTimeout(Duration.ofMillis(remaining));
         var api = OllamaApi.builder().baseUrl(profile.endpoint())
-                .restClientBuilder(RestClient.builder().requestFactory(factory)).build();
+                .restClientBuilder(RestClient.builder().requestFactory(factory)
+                        .requestInterceptor((http, body, execution) -> {
+                            ObjectNode chat = (ObjectNode) JSON.readTree(body);
+                            chat.put("truncate", false);
+                            chat.put("shift", false);
+                            byte[] bounded = JSON.writeValueAsBytes(chat);
+                            http.getHeaders().setContentLength(bounded.length);
+                            return execution.execute(http, bounded);
+                        })).build();
         var options = OllamaChatOptions.builder().model(profile.modelTag())
                 .numCtx(profile.contextTokens()).numPredict(profile.outputTokens())
                 .temperature(profile.temperature()).truncate(false).toolCallbacks(tools).build();
@@ -80,6 +89,14 @@ public final class OllamaModelAdapter implements ModelAdapter {
             response = model.call(new Prompt(messages, options));
         } catch (ResourceAccessException e) {
             if (causedByTimeout(e)) throw new IllegalStateException("MODEL_DEADLINE_EXCEEDED", e);
+            throw new IllegalStateException("MODEL_TRANSPORT", e);
+        } catch (NonTransientAiException e) {
+            if (e.getMessage() != null && e.getMessage().startsWith("400 -") && contextOverflow(e.getMessage()))
+                throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW", e);
+            throw new IllegalStateException("MODEL_TRANSPORT", e);
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode().value() == 400 && contextOverflow(e.getResponseBodyAsString()))
+                throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW", e);
             throw new IllegalStateException("MODEL_TRANSPORT", e);
         } catch (RestClientException e) {
             for (Throwable cause = e; cause != null; cause = cause.getCause()) {
@@ -113,6 +130,14 @@ public final class OllamaModelAdapter implements ModelAdapter {
                 return true;
         }
         return false;
+    }
+
+    private static boolean contextOverflow(String body) {
+        String message = body.toLowerCase(java.util.Locale.ROOT);
+        return (message.contains("context") && (message.contains("exceed") || message.contains("too long") ||
+                message.contains("too large") || message.contains("cannot fit") ||
+                message.contains("overflow") || message.contains("limit"))) ||
+                (message.contains("prompt") && message.contains("too long"));
     }
 
     private static List<Message> messages(byte[] bytes) {
