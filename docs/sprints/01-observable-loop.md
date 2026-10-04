@@ -1,6 +1,6 @@
 # Sprint 01 — Durable local coding benchmark
 
-Status: Proposed; not started
+Status: In progress; Tasks 1–4 merged, Task 5 next (see [current handoff](../STATUS.md))
 
 Phase: 1
 
@@ -22,10 +22,10 @@ Review the supporting Temporal/Spring AI design and the file-level plan. The CLI
 
 | Work | Plan tasks | State |
 |---|---|---|
-| Verified runtime and durable services | 1 | Not started |
-| Immutable source snapshots and scoped edits | 2 | Not started |
-| Isolated runner and independent evaluator | 3–4 | Not started |
-| Local model, durable command delivery and coding loop | 5–7 | Not started |
+| Verified runtime and durable services | 1 | Merged |
+| Immutable source snapshots and scoped edits | 2 | Merged |
+| Isolated runner and independent evaluator | 3–4 | Merged |
+| Local model, durable command delivery and coding loop | 5–7 | Task 5 next |
 | Operator API/CLI | 8 | Not started |
 | Crashes, deployments, cancellation, telemetry and secret checks | 9 | Not started |
 | Actual local coding runs and evidence | 10 | Not started |
