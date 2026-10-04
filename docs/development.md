@@ -26,6 +26,8 @@ Expect HTTP 200 and `status: UP`. This is application/database health; the integ
 
 `./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs real PostgreSQL, Temporal, workspace, and runner recovery/isolation integration tests. Build the runner image first and export `HARNESS_RUNNER_IMAGE`; runner integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
 
+GitHub Actions runs `./gradlew test --no-daemon` on pull requests to `main` and pushes to `main`. This check requires no local services. A fresh runner initially exposed 12 missing published POM/module hashes in Gradle verification metadata; those exact files and their SHA-256 sidecars were checked against Maven Central before adding the hashes. Dependency versions and locks are unchanged.
+
 `./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*InfrastructureIT'`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
 
 The Groovy DSL build uses Java 21 toolchains, native BOM constraints, and a committed `gradle.lockfile`. To intentionally update dependencies, review the version changes, run `./gradlew dependencies --write-locks`, then verify the full build. Do not refresh locks as part of ordinary builds. For local API development, use `./gradlew bootRun`.
