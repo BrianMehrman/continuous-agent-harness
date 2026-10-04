@@ -18,7 +18,7 @@ public class DockerCommandClient {
     record Output(byte[] logs,boolean truncated,byte[] artifact,String artifactError,byte[] reports) {}
     static class Unavailable extends RuntimeException { Unavailable(String message) { super(message); } }
     static class Collision extends RuntimeException { Collision() { super("Container ownership mismatch"); } }
-    private record Reply(int code,byte[] out,String error) {}
+    record Reply(int code,byte[] out,String error) {}
 
     Optional<Container> inspect(String name,String hash) {
         Reply reply=command(List.of("container","inspect",name),null,65536);
@@ -92,7 +92,7 @@ public class DockerCommandClient {
         } catch(IOException e) { throw new IllegalStateException("Cannot stage snapshot",e); }
     }
     private static void require(Reply reply) { if(reply.code()!=0) throw new Unavailable("Docker command failed"); }
-    private Reply command(List<String> arguments,byte[] input,int limit) {
+    Reply command(List<String> arguments,byte[] input,int limit) {
         var args=new ArrayList<String>(); args.add("docker"); args.addAll(arguments);
         Process process=null;
         var pool=Executors.newVirtualThreadPerTaskExecutor();

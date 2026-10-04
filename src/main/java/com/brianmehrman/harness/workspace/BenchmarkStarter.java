@@ -15,7 +15,7 @@ public class BenchmarkStarter {
             "gradle/wrapper/gradle-wrapper.jar.sha256", "gradle/verification-metadata.xml",
             "REQUIREMENTS.md", "src/main/java/example/tasktracker/TaskTracker.java");
 
-    SortedMap<String, String> files(String version) {
+    public SortedMap<String, String> files(String version) {
         if (!VERSION.equals(version)) throw new IllegalArgumentException("Unknown benchmark version");
         var files = new TreeMap<String, String>();
         for (String path : FILES) {
