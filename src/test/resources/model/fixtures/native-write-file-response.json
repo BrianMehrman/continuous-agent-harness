@@ -1,0 +1,1 @@
+{"model":"model-1","message":{"role":"assistant","content":"","tool_calls":[{"id":"call-1","function":{"name":"write_file","arguments":{"path":"README.md","content":"hi"}}}]},"done":true}

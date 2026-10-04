@@ -1,0 +1,9 @@
+# Copy these settings into local application configuration before selecting a profile.
+# HARNESS_OLLAMA_MODEL must be set explicitly to an installed local tag.
+harness:
+  model:
+    ollama:
+      endpoint: http://127.0.0.1:11434
+    context-tokens: 8192
+    output-tokens: 1024
+    temperature: 0.0
