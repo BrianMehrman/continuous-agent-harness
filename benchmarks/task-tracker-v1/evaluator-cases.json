@@ -1,0 +1,7 @@
+{
+  "version":"task-tracker-evaluator-v1",
+  "cases":["empty","add_list","complete","complete_twice","restart","isolated_dirs","unicode_spaces","duplicate_descriptions","invalid_command","invalid_args","invalid_id","invalid_description","failed_write","agent_tests","readme"],
+  "random":"java.util.Random(seed)",
+  "transportExclusions":["NUL in OS argv is unrepresentable; no alternative escape contract is invented."],
+  "testEvidence":"Actual immutable Gradle TEST success with failOnNoDiscoveredTests and candidate source presence. JUnit XML count is bounded diagnostic evidence only; independent CLI cases determine behavioral correctness."
+}

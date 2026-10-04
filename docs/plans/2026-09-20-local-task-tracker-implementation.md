@@ -10,7 +10,7 @@
 
 **Spec:** [Local task-tracker benchmark](../specs/local-task-tracker-benchmark.md), plus [durable foundation](../specs/spring-boot-durable-foundation.md) where not superseded.
 
-**Status:** Tasks 1–2 foundation and immutable workspaces implemented; subsequent tasks remain planned. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
+**Status:** Tasks 1–4 foundation, immutable workspaces, isolated command runner, and independent evaluation implemented on feature branches; Task 4 awaits pull-request review. Subsequent tasks remain planned. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
 
 ## Global constraints
 
@@ -103,7 +103,10 @@ public interface Runner {
 // benchmark/Evaluation.java
 public record Evaluation(boolean passed, String snapshotSha256,
     String artifactSha256, String evaluatorVersion, long seed,
-    java.util.List<String> failedCases, int discoveredAgentTests) {}
+    java.util.List<String> failedCases, int reportedAgentTests,
+    Outcome outcome) {
+    public enum Outcome { PASSED, REJECTED, INFRASTRUCTURE_FAILED }
+}
 // benchmark/Evaluator.java
 public interface Evaluator {
     Evaluation evaluate(String runId, String invocationId, SnapshotRef snapshot,
@@ -253,12 +256,12 @@ Implementation notes: the Java `CommandMain` is the fixed image entrypoint; `sta
 
 ## Task 4: Prove the independent task-tracker evaluator
 
-**Files:** Create `J/benchmark/{Evaluation,Evaluator,TaskTrackerEvaluator,TaskTrackerDefinition}.java`, `T/benchmark/{TaskTrackerEvaluatorIT,fixtures/GoodTracker.java,fixtures/BrokenTracker.java}`, `benchmarks/task-tracker-v1/evaluator-cases.json`, `runner/evaluate-commands.json`.
+**Files:** Create `J/benchmark/{Evaluation,Evaluator,TaskTrackerEvaluator,TaskTrackerDefinition}.java`, `T/benchmark/{TaskTrackerEvaluatorIT,fixtures/GoodTracker.java,fixtures/BrokenTracker.java}`, `benchmarks/task-tracker-v1/evaluator-cases.json`, `runner/evaluate-commands.json`, `src/main/resources/db/migration/V4__create_evaluations.sql`.
 
 **Interfaces:** `TaskTrackerEvaluator` implements `Evaluator`, uses the fixed runner build/test environment, and independently drives candidate processes. `TaskTrackerDefinition` returns benchmark version, starter digest, model-visible requirements, tool schemas and evaluator version. The evaluator's controller/report storage are never mounted in candidate containers.
 
-- [ ] Define exact case names: `empty`, `add_list`, `complete`, `complete_twice`, `restart`, `isolated_dirs`, `unicode_spaces`, `duplicate_descriptions`, `invalid_command`, `invalid_args`, `invalid_id`, `invalid_description`, `failed_write`, `agent_tests`, `readme`. Use Java `Random(seed)` for recorded test descriptions and task counts, not model-generated expected answers.
-- [ ] Write evaluator tests with private fixture snapshots. `GoodTracker.java` is test-only and implements the public contract; `BrokenTracker.java` fixtures deliberately omit persistence, hardcode example output, mutate on unknown IDs, hang, or print a fake success report. They are not starter files or prompts.
+- [x] Define exact case names: `empty`, `add_list`, `complete`, `complete_twice`, `restart`, `isolated_dirs`, `unicode_spaces`, `duplicate_descriptions`, `invalid_command`, `invalid_args`, `invalid_id`, `invalid_description`, `failed_write`, `agent_tests`, `readme`. Derive each case's Java `Random` seed as `seed ^ caseName.hashCode()` so a completed case can replay independently, then generate recorded descriptions and counts without model-generated expected answers.
+- [x] Write evaluator tests with private fixture snapshots. `GoodTracker.java` is test-only and implements the public contract; `BrokenTracker.java` fixtures deliberately omit persistence, hardcode example output, mutate on unknown IDs, hang, or print a fake success report. They are not starter files or prompts.
 
 ```java
 @Test void evaluatorDoesNotTrustCandidateSuccessText() {
@@ -272,11 +275,11 @@ Implementation notes: the Java `CommandMain` is the fixed image entrypoint; `sta
 
 `privateFixture(String variant)` is a test helper in `TaskTrackerEvaluatorIT`: it imports the starter, writes the selected private source through `WorkspaceStore`, and supplies a README and discovered test; it never exposes fixture directories to the agent. `evaluator` is the real controller. Test each negative variant separately, including an assertion that the starter fails.
 
-- [ ] Run `./gradlew integrationTest --tests '*TaskTrackerEvaluatorIT'`; confirm the evaluator does not yet exist/pass.
-- [ ] Implement fresh candidate runtime containers with read-only JAR and writable data only. Each `java -jar ...` invocation has a 5-second process limit nested under the overall evaluation deadline. Reuse a candidate data volume within a case requiring persistence; discard it between cases and submissions. Compare exact stdout, stderr rules and process exit; check that invalid operations preserve subsequent listing.
-- [ ] Build the candidate outside the evaluator controller, run its discovered tests, then run independent cases. A candidate process cannot write the evaluator verdict. Record README/test presence separately; zero agent tests or missing README fail their explicit requirements, while stylistic quality is not automatically scored.
-- [ ] Persist `Evaluation` against the submitted snapshot and JAR digest. Repeated submit ID/input returns the existing evaluation. If a build fails, produce a failed evaluation with build diagnostics; do not throw an unclassified success-path exception.
-- [ ] Run all positive and mutant cases plus a test that an attempted evaluator path read cannot see evaluator files. Commit `feat: independently evaluate task-tracker submissions`.
+- [x] Run `./gradlew integrationTest --tests '*TaskTrackerEvaluatorIT'`; confirm the evaluator does not yet exist/pass.
+- [x] Implement fresh candidate runtime containers with read-only JAR and writable data only. Each `java -jar ...` invocation has a 5-second process limit nested under the overall evaluation deadline. Reuse a candidate data volume within a case requiring persistence; discard it between cases and submissions. Compare exact stdout, stderr rules and process exit; check that invalid operations preserve subsequent listing.
+- [x] Build the candidate outside the evaluator controller, run its discovered tests, then run independent cases. A candidate process cannot write the evaluator verdict. Record README/test presence separately; zero agent tests or missing README fail their explicit requirements, while stylistic quality is not automatically scored.
+- [x] Persist `Evaluation` against the submitted snapshot and JAR digest. Repeated submit ID/input returns the existing evaluation. A failed build returns a rejected evaluation with diagnostics; lost execution evidence or an infrastructure outage returns the distinct `INFRASTRUCTURE_FAILED` outcome. The candidate-writable XML count is labeled `reportedAgentTests` and is diagnostic only.
+- [x] Run all positive and mutant cases plus a test that an attempted evaluator path read cannot see evaluator files. Commit `feat: independently evaluate task-tracker submissions`.
 
 ## Task 5: Implement one-call local model adapters and frozen profiles
 
@@ -307,7 +310,7 @@ Declare the fixture helpers in this test class: `serverReply` queues resource by
 
 ## Task 6: Deliver accepted commands without duplicate runs
 
-**Files:** Create `J/execution/{Limits,RunSpec,RunView,CancelCommand,CommandResult}.java` and `J/runs/{StartCommand,StartResult,RunCommandService,CommandDispatcher,RunEvent,RunProjectionRepository}.java`, `src/main/resources/db/migration/V4__create_run_commands_and_events.sql`, `T/runs/{RunCommandServiceIT,CommandDeliveryIT}.java`.
+**Files:** Create `J/execution/{Limits,RunSpec,RunView,CancelCommand,CommandResult}.java` and `J/runs/{StartCommand,StartResult,RunCommandService,CommandDispatcher,RunEvent,RunProjectionRepository}.java`, `src/main/resources/db/migration/V5__create_run_commands_and_events.sql`, `T/runs/{RunCommandServiceIT,CommandDeliveryIT}.java`.
 
 **Interfaces:** Define `StartCommand(String commandId, String benchmarkVersion, String profileRevision, Limits limits)`; `StartResult(String runId, String commandId, String deliveryStatus)`; `RunCommandService.start(StartCommand)` and `RunCommandService.cancel(String runId, CancelCommand)` accept commands durably. The dispatcher has `dispatchOnce()` and talks through `WorkflowGateway.start(RunSpec)`, `WorkflowGateway.cancel(String runId, CancelCommand)`, `WorkflowGateway.describe(String runId)`; create `J/runs/WorkflowGateway.java` here and the real Temporal implementation in Task 7. Gateway start outcomes are `STARTED`, `ALREADY_EXISTS`, or transient error; an existing workflow's input identity must match.
 
@@ -337,7 +340,7 @@ Declare `gateway` as `RecordingWorkflowGateway`, a test implementation holding a
 
 ## Task 7: Execute the bounded durable coding loop
 
-**Files:** Create `J/execution/{CodingWorkflow,CodingWorkflowImpl,RunActivities,RunActivitiesImpl,ToolInvocation,ToolOutcome,ToolRouter}.java`, `J/runs/TemporalWorkflowGateway.java`, `T/execution/{CodingWorkflowTest,ToolRouterTest}.java`, `T/execution/fixtures/scripted-task-tracker.json`, `src/main/resources/db/migration/V5__create_model_attempts_and_run_admission.sql`.
+**Files:** Create `J/execution/{CodingWorkflow,CodingWorkflowImpl,RunActivities,RunActivitiesImpl,ToolInvocation,ToolOutcome,ToolRouter}.java`, `J/runs/TemporalWorkflowGateway.java`, `T/execution/{CodingWorkflowTest,ToolRouterTest}.java`, `T/execution/fixtures/scripted-task-tracker.json`, `src/main/resources/db/migration/V6__create_model_attempts_and_run_admission.sql`.
 
 **Interfaces:** Use the shared contracts above; keep the Task 6 execution DTOs. Workflow-local state contains immutable spec, latest snapshot reference, conversation blob reference, sequence/version, logical counts, attempt counts, absolute deadline and terminal result reference. `ToolRouter` dispatches only the six documented tools. Tool ledger identity derives from run ID + logical turn + tool index; provider call IDs are correlation only.
 

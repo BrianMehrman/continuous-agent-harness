@@ -77,3 +77,23 @@ tasks.named('processResources') {
         }
     }
 }
+
+// Host-only evaluator assets and reproducible source provenance.
+tasks.named('processResources') {
+    def evaluatorInputs = files(fileTree('src/main/java/com/brianmehrman/harness/benchmark'),
+        fileTree('src/main/java/com/brianmehrman/harness/runner'),
+        'runner/evaluate-commands.json', 'benchmarks/task-tracker-v1/evaluator-cases.json')
+    inputs.files(evaluatorInputs)
+    from('benchmarks/task-tracker-v1/evaluator-cases.json') { into 'benchmarks/task-tracker-v1' }
+    from('runner/evaluate-commands.json') { into 'benchmarks/task-tracker-v1' }
+    doLast {
+        def hash = java.security.MessageDigest.getInstance('SHA-256')
+        evaluatorInputs.files.sort { rootProject.relativePath(it) }.each { f ->
+            hash.update(rootProject.relativePath(f).getBytes('UTF-8')); hash.update((byte)0)
+            hash.update(f.bytes); hash.update((byte)0)
+        }
+        def output = new File(destinationDir, 'benchmarks/task-tracker-v1/evaluator-source.sha256')
+        output.parentFile.mkdirs()
+        output.text = java.util.HexFormat.of().formatHex(hash.digest()) + '\n'
+    }
+}

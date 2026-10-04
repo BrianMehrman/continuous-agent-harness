@@ -1,0 +1,15 @@
+{
+  "protocol": "task-tracker-runtime-v1",
+  "entrypoint": "/usr/bin/timeout",
+  "arguments": ["--signal=KILL", "5", "/opt/java/openjdk/bin/java", "-Xmx256m", "-XX:ActiveProcessorCount=2", "-jar", "/artifact/task-tracker.jar"],
+  "processLimitMillis": 5000,
+  "evaluationLimitMillis": 180000,
+  "maxOutputBytes": 262144,
+  "maxArtifactBytes": 16777216,
+  "dataVolume": {"driver":"local","type":"tmpfs","device":"tmpfs","options":"size=32m,uid=1000,gid=1000,mode=0700,nosuid,nodev"},
+  "artifactVolume": {"driver":"local","type":"tmpfs","device":"tmpfs","options":"size=34m,uid=0,gid=0,mode=0755,nosuid,nodev","candidateReadOnly":true},
+  "user":"1000:1000", "network":"none", "readOnly":true,
+  "cpus":2, "memoryBytes":1073741824, "pids":128,
+  "capDrop":["ALL"], "securityOpt":["no-new-privileges:true"],
+  "transportExclusions":["NUL cannot be carried in OS argv and is not passed to candidate commands."]
+}
