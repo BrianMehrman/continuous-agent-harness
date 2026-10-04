@@ -10,7 +10,7 @@
 
 **Spec:** [Local task-tracker benchmark](../specs/local-task-tracker-benchmark.md), plus [durable foundation](../specs/spring-boot-durable-foundation.md) where not superseded.
 
-**Status:** Tasks 1–4 foundation, immutable workspaces, isolated command runner, and independent evaluation implemented on feature branches; Task 4 awaits pull-request review. Subsequent tasks remain planned. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
+**Status:** Tasks 1–4 foundation, immutable workspaces, isolated command runner, and independent evaluation are merged. Task 5 is next; later tasks remain planned. See the [current handoff](../STATUS.md) for merged evidence. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
 
 ## Global constraints
 

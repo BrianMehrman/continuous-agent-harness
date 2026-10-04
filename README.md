@@ -13,7 +13,7 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-Task 1 provides an executable Java 21 / Spring Boot foundation built with the Gradle wrapper with API, worker, and runner profiles, PostgreSQL migrations, and a persistent local Temporal service. Task 2 adds immutable workspace snapshots, retry-safe file edits, and the trusted unimplemented Gradle starter. Task 3 adds durable isolated build/test execution and supervisor crash recovery. The first benchmark is a Java task-tracker CLI built by a local Ollama model, with independent verification and recovery tests. The coding loop, Ollama inference, and task-tracker benchmark implementation remain upcoming work. The first implementation slice is operated through an API/CLI; the browser console and remote-provider comparison follow.
+Tasks 1–4 have delivered the Java 21 / Spring Boot and Gradle foundation, immutable workspace snapshots, an isolated build/test runner, and an independent task-tracker evaluator. Task 5, the scripted and local Ollama model boundary, is next. The coding loop and a live task-tracker benchmark remain upcoming work. The first implementation slice is operated through an API/CLI; the browser console and remote-provider comparison follow. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
 
 See [local development](docs/development.md) for startup, tests, configuration, and verified compatibility. The specifications describe the broader intended behavior; ADRs marked **Proposed** remain recommendations for review.
 
@@ -21,6 +21,7 @@ See [local development](docs/development.md) for startup, tests, configuration, 
 
 | Document | Purpose |
 |---|---|
+| [Project handoff](docs/STATUS.md) | Completed tasks, next task, and current constraints |
 | [Local coding benchmark](docs/specs/local-task-tracker-benchmark.md) | First target: a Java task-tracker CLI built by a local Ollama model |
 | [Local coding implementation plan](docs/plans/2026-09-20-local-task-tracker-implementation.md) | File-level tasks, tests, recovery checks, and local acceptance |
 | [Current durable foundation](docs/specs/spring-boot-durable-foundation.md) | Spring Boot, first-version recovery, proposed execution ownership |
