@@ -18,8 +18,8 @@ Build an API/CLI-operated Spring Boot harness that lets a local Ollama model imp
 
 The credential hardening follow-up was merged in [PR #5](https://github.com/BrianMehrman/continuous-agent-harness/pull/5). Task 4's full build passed 92 Java tests on 2026-10-03; see [development evidence](development.md). This does not establish a live Ollama benchmark pass.
 
-## In progress: Task 6
+## In review: Task 6
 
-Task 6 persists accepted start/cancel commands, stable run identity and frozen inputs, leased outbox delivery, and semantic event projections. It uses a fake workflow gateway in integration tests; the Temporal gateway and coding workflow belong to Task 7. See [Task 6 of the implementation plan](plans/2026-09-20-local-task-tracker-implementation.md#task-6-deliver-accepted-commands-without-duplicate-runs).
+Task 6 persists accepted start/cancel commands, stable run identity and frozen inputs, leased outbox delivery, and semantic event projections in [PR #12](https://github.com/BrianMehrman/continuous-agent-harness/pull/12). It uses a fake workflow gateway in integration tests; the Temporal gateway and coding workflow belong to Task 7. See [Task 6 of the implementation plan](plans/2026-09-20-local-task-tracker-implementation.md#task-6-deliver-accepted-commands-without-duplicate-runs).
 
 The unit-test CI workflow was merged in [PR #11](https://github.com/BrianMehrman/continuous-agent-harness/pull/11) with `ubuntu-24.04` pinned. Task 5's opt-in live probe used the installed `qwen3.8:latest` tag and verified a read-only tool round trip and one adapter call; no model was pulled or full benchmark run claimed. The coding benchmark remains Task 10 work. See [development evidence](development.md#explicit-local-model-boundary-task-5). Confirm Task 6's PR actually merged before marking it complete or starting Task 7. Follow [AGENTS.md](../AGENTS.md) for Git, security, testing, PR, and resource cleanup rules.
