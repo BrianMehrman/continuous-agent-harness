@@ -51,9 +51,11 @@ public class CommandDispatcher {
         } catch (RuntimeException error) {
             transactions.executeWithoutResult(status -> jdbc.update(
                     "update run_command set lease_owner=null,lease_until=null," +
-                            "next_attempt_at=now()+(? * interval '1 second'),last_error_code='DISPATCH_FAILED' " +
+                            "next_attempt_at=now()+(? * interval '1 second'),last_error_code=? " +
                             "where command_id=? and lease_owner=? and delivered_at is null",
-                    backoffSeconds(claim.attempt()), claim.commandId(), claim.owner()));
+                    backoffSeconds(claim.attempt()),
+                    error instanceof UnknownStartOutcomeException ? "START_OUTCOME_UNKNOWN" : "DISPATCH_FAILED",
+                    claim.commandId(), claim.owner()));
             throw error;
         }
     }
@@ -82,6 +84,13 @@ public class CommandDispatcher {
         String specJson = jdbc.queryForObject("select spec_json::text from run_request where run_id=?",
                 String.class, claim.runId());
         RunSpec spec = json.readValue(specJson, RunSpec.class);
+        if (claim.attempt() > 1) {
+            var existing = gateway.describe(spec.runId());
+            if (existing == null)
+                throw new UnknownStartOutcomeException();
+            if (!spec.inputSha256().equals(existing.inputSha256()))
+                throw new IllegalStateException("Existing workflow input identity mismatch");
+        }
         WorkflowGateway.StartReceipt receipt = gateway.start(spec);
         if (receipt == null || !spec.inputSha256().equals(receipt.inputSha256()))
             throw new IllegalStateException("Workflow start identity mismatch");
@@ -108,4 +117,8 @@ public class CommandDispatcher {
 
     private record Claim(String commandId, String runId, String kind, String payloadJson,
             int attempt, String owner) {}
+
+    private static final class UnknownStartOutcomeException extends IllegalStateException {
+        private UnknownStartOutcomeException() { super("Prior workflow start has an unknown outcome"); }
+    }
 }

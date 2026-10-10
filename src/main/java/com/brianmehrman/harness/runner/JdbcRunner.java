@@ -45,5 +45,11 @@ public class JdbcRunner implements Runner {
         InvocationHasher.identity(id);
         jdbc.update("update runner_invocation set requested_cancel=true where invocation_id=? and result_json is null",id);
     }
+    @Override public boolean stopConfirmed(String id) {
+        InvocationHasher.identity(id);
+        var rows=jdbc.queryForList("select result_json is not null and cleaned from runner_invocation where invocation_id=?",
+            Boolean.class,id);
+        return !rows.isEmpty() && Boolean.TRUE.equals(rows.getFirst());
+    }
     static String containerName(String hash,int attempt) { return "harness-"+hash+"-"+attempt; }
 }

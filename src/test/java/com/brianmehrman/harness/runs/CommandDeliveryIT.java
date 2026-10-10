@@ -53,6 +53,22 @@ class CommandDeliveryIT {
                 java.sql.Timestamp.class, command.commandId()));
     }
 
+    @Test void retriedStartWithoutTemporalHistoryDoesNotReuseTheRunId() {
+        StartResult accepted = commands.start(request());
+        jdbc.update("update run_command set attempt_count=1 where run_id=? and kind='START'",
+                accepted.runId());
+        var gateway = new RecordingWorkflowGateway();
+        var dispatcher = new CommandDispatcher(jdbc, manager, gateway);
+
+        assertThrows(IllegalStateException.class, () -> dispatcher.dispatchOnce(accepted.runId()));
+        assertEquals(0, gateway.createdWorkflowCount);
+        assertEquals("START_OUTCOME_UNKNOWN", jdbc.queryForObject(
+                "select last_error_code from run_command where run_id=? and kind='START'",
+                String.class, accepted.runId()));
+        assertNull(jdbc.queryForObject("select delivered_at from run_command where run_id=? and kind='START'",
+                java.sql.Timestamp.class, accepted.runId()));
+    }
+
     @Test void cancellationWaitsForStartDelivery() {
         StartResult run = commands.start(request());
         CancelCommand cancel = new CancelCommand("cancel-" + UUID.randomUUID(), 0);

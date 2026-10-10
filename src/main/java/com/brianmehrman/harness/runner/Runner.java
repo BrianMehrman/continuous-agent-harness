@@ -4,4 +4,5 @@ public interface Runner {
     void ensureStarted(InvocationRequest request);
     Optional<InvocationResult> result(String invocationId);
     void cancel(String invocationId);
+    boolean stopConfirmed(String invocationId);
 }

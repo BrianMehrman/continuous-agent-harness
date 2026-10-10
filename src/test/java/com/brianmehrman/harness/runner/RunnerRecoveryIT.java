@@ -189,12 +189,15 @@ class RunnerRecoveryIT {
 
  @Test void dockerOutageDoesNotFalselyConfirmCancellation() throws Exception {
   var r=request(Operation.BUILD,120000,null);String id=r.invocationId();runner.ensureStarted(r);runner.cancel(id);
+  assertThat(runner.stopConfirmed(id)).isFalse();
   Path marker=Path.of("target/runner-tests",id+".marker");var unavailable=launch("",id,marker,"unix:///nonexistent-harness-test-socket");
   Path log=Path.of("target/runner-tests",id+"-0.log");
   await(() -> { try { return Files.readString(log).contains("Started RunnerRecoveryProcess"); } catch(Exception e) { return false; } });
   Thread.sleep(2500);assertThat(runner.result(id)).isEmpty();
+  assertThat(runner.stopConfirmed(id)).isFalse();
   unavailable.destroyForcibly();unavailable.waitFor(10,TimeUnit.SECONDS);launch("",id,marker);
   assertThat(result(id).status()).isEqualTo("CANCELLED");await(() -> Boolean.TRUE.equals(row(id).get("cleaned")));
+  assertThat(runner.stopConfirmed(id)).isTrue();
  }
 
  @Test void oversizedDockerLogsProduceTerminalReceiptAndCleanup() throws Exception {

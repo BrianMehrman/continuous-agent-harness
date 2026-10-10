@@ -3,9 +3,14 @@ package com.brianmehrman.harness.config;
 import com.brianmehrman.harness.model.LocalProfileProbe;
 import com.brianmehrman.harness.model.ProfileRevision;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
+import com.brianmehrman.harness.execution.ModelAdapterFactory;
+import com.brianmehrman.harness.model.OllamaModelAdapter;
+import com.brianmehrman.harness.runs.BlobStore;
 import java.util.Objects;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Profile;
 
 /** Explicit operator selection; constructing the application never probes or pulls a model. */
 @Component
@@ -27,5 +32,11 @@ public final class ModelConfiguration {
         int output = environment.getProperty("harness.model.output-tokens", Integer.class, 1024);
         double temperature = environment.getProperty("harness.model.temperature", Double.class, 0.0);
         return store.save(new LocalProfileProbe(endpoint).probe(selectedModelTag(), context, output, temperature));
+    }
+
+    @Bean
+    @Profile("worker")
+    ModelAdapterFactory modelAdapterFactory(BlobStore blobs) {
+        return profile -> new OllamaModelAdapter(blobs, profile);
     }
 }
