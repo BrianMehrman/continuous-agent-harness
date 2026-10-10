@@ -31,6 +31,13 @@ class InfrastructureIT {
     @Autowired Environment environment;
     @Autowired(required = false) WorkflowClient client;
     @Autowired(required = false) WorkflowServiceStubs temporal;
+    @Autowired WorkerFactory codingWorkerFactory;
+
+    @Test
+    void workerRoleRegistersAndStartsTheCodingTaskQueue() {
+        assertThat(codingWorkerFactory.isStarted()).isTrue();
+        assertThat(codingWorkerFactory.getWorker("coding-v1")).isNotNull();
+    }
 
     @Test
     void profileRevisionSurvivesASeparateDatabaseConnection() throws Exception {

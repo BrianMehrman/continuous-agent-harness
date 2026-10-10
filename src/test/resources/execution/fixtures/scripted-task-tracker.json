@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {"turn": 1, "name": "read_file", "from": "seed", "to": "seed", "passed": false},
+    {"turn": 2, "name": "write_file", "from": "seed", "to": "broken", "passed": false},
+    {"turn": 3, "name": "run_tests", "from": "broken", "to": "broken", "passed": false},
+    {"turn": 4, "name": "write_file", "from": "broken", "to": "repaired", "passed": false},
+    {"turn": 4, "name": "submit", "from": "repaired", "to": "repaired", "passed": false},
+    {"turn": 5, "name": "write_file", "from": "repaired", "to": "final", "passed": false},
+    {"turn": 5, "name": "submit", "from": "final", "to": "final", "passed": true}
+  ]
+}

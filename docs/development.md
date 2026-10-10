@@ -42,7 +42,7 @@ java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profil
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
 ```
 
-`api` is the default and exposes loopback HTTP with a Temporal client. `worker` creates a Temporal client and worker factory. The factory remains idle until Task 7 registers workflows and starts polling. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`; worker workflows arrive in Task 7. All three currently configure the application database and run Flyway at startup.
+`api` is the default and exposes loopback HTTP with a Temporal client. `worker` registers the coding workflow and Activities on the `coding-v1` task queue and starts polling Temporal. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
 
 Spring AI's Ollama library is included without model auto-configuration. No model request or model download occurs in this foundation.
 
@@ -246,3 +246,13 @@ Task 5 verification on 2026-10-04 used an isolated PostgreSQL/Temporal Compose p
 `RunProjectionRepository` stores semantic events idempotently and applies only contiguous sequences. Missing events mark the read model stale. Reconciliation checks a gateway description against the frozen input identity and exposes version lag until events arrive. Temporal remains the lifecycle authority; the projection does not authorize cancellation. Task 6 integration tests use a durable fake gateway, not a live coding workflow.
 
 Task 6 verification on 2026-10-04 used an isolated PostgreSQL/Temporal Compose project and the pinned local runner image. The focused `RunCommandServiceIT` and `CommandDeliveryIT` suite passed all 13 tests. The final `./gradlew build --offline` passed 58 unit tests and 66 discovered integration tests in 17 minutes 52 seconds, with zero failures; the opt-in live Ollama probe was the sole skip. Flyway recorded version 5 as `V5__create_run_commands_and_events.sql` with a successful journal entry.
+
+## Durable coding workflow (Task 7)
+
+The `coding-v1` Temporal worker runs a bounded coding loop over immutable snapshots. Workflow state owns turn and tool counts, deadlines, cancellation commands, versioned transitions, and the current snapshot. Activities persist conversation and model receipts, route only the six declared tools, publish semantic events, and use the durable runner and evaluator. A passing evaluator submission is the sole success path; a failed submission remains available for repair. Text-only replies receive one protocol reminder.
+
+`model_attempt` records a request before provider dispatch and a response receipt before returning to Temporal. Unreceipted redelivery becomes `UNKNOWN` and consumes a separate workflow-owned attempt number; late owners cannot overwrite a receipt. The single `run_admission` row reserves the benchmark slot across worker restarts. A worker reconciler releases a reservation only after Temporal confirms workflow completion. Cancellation of active runner work remains `STOPPING` until the runner has persisted its result and cleaned its container.
+
+The Temporal gateway uses the stable run ID and frozen input digest. A retried START delivery with missing Temporal history is recorded as `START_OUTCOME_UNKNOWN` and cannot reuse that run ID automatically. Tool calls run sequentially with the host's current snapshot; assistant call batches and correlated tool results are stored in the versioned conversation blob. The real-service smoke test uses scripted Activities. It does not establish live Ollama benchmark completion, which belongs to Task 10.
+
+Task 7 verification on 2026-10-10 used isolated PostgreSQL/Temporal services and the pinned local runner image. `./gradlew build --offline` passed 78 unit tests and 77 discovered integration tests in 16 minutes 56 seconds, with zero failures. The opt-in live Ollama probe was the sole skip. Focused admission, attempt-ledger, Activity, Temporal smoke, and command-delivery integration suites also passed. Flyway recorded version 6 as `V6__create_model_attempts_and_run_admission.sql` with a successful journal entry.
