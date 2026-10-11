@@ -1,13 +1,25 @@
 # Local development
 
-Run commands from the primary `continuous-agent-harness` checkout. Use Java 21 and Docker with Compose v2. The checksum-pinned Gradle wrapper downloads Gradle 9.8.0 on first use; no globally installed Gradle is required. Initial dependency and image downloads require network access.
+Run commands from the primary `continuous-agent-harness` checkout. Use Java 21, Python 3, and Docker with Compose v2. The checksum-pinned Gradle wrapper downloads Gradle 9.8.0 on first use; no globally installed Gradle is required. Initial dependency and image downloads require network access.
+
+## Choose a database
+
+Choose the path that matches your local state **before** running Compose:
+
+| Local state | Action |
+|---|---|
+| No `.secrets/` credential files and no `continuous-agent-harness_postgres-data` volume | Create credentials with `python3 scripts/create-local-secrets.py`, then follow [start and verify](#start-and-verify). |
+| Credential files exist, but no database volume exists | Reuse those files and follow [start and verify](#start-and-verify); the generator will refuse to overwrite them. |
+| Database volume and matching credential files exist | Keep both and follow [start and verify](#start-and-verify). |
+| Database volume exists, but its passwords do not match the current files or the files are missing | Follow [credential rotation](#existing-databases-and-credential-rotation) to keep using that volume, or use a [separate clean test project](#separate-clean-test-project) that preserves it. |
+
+The default Compose project is named `continuous-agent-harness`. `docker volume inspect continuous-agent-harness_postgres-data` checks whether its database volume exists. The volume retains database passwords; generating or replacing `.secrets/` files does **not** change them. Do not use `docker compose down -v` to resolve an authentication error: it deletes the database volume and its data.
 
 ## Start and verify
 
-For a new database, create local credentials first:
+Create credentials only when all four files are absent and you have chosen a new database above. Then run:
 
 ```sh
-python3 scripts/create-local-secrets.py
 docker compose up -d --wait postgres temporal
 docker compose run --rm --no-deps temporal-namespace
 python3 scripts/build-runner-image.py
@@ -30,7 +42,27 @@ Expect HTTP 200 and `status: UP`. This is application/database health; the integ
 
 The Groovy DSL build uses Java 21 toolchains, native BOM constraints, and a committed `gradle.lockfile`. To intentionally update dependencies, review the version changes, run `./gradlew dependencies --write-locks`, then verify the full build. Do not refresh locks as part of ordinary builds. For local API development, use `./gradlew bootRun`.
 
-Existing database users must follow [credential rotation](#existing-databases-and-credential-rotation) before switching to the generated credentials. Secret creation does not change database passwords.
+The API currently exposes health but no coding-run submission endpoint or operator CLI. The scripted workflow is covered by tests; a live Ollama task-tracker run is not yet available through the API.
+
+### Separate clean test project
+
+If the default database volume has credentials you cannot use or cannot confirm, start a new Compose project with its own volume. Keep the old volume. The commands below reuse the normal host ports, so first stop any API/worker/runner processes and the default Compose services. Ensure `.secrets/` contains a complete set of files; run `python3 scripts/create-local-secrets.py` only if all four files are absent.
+
+```sh
+docker compose down
+docker compose -p harness-tryout up -d --wait postgres temporal
+docker compose -p harness-tryout run --rm --no-deps temporal-namespace
+python3 scripts/build-runner-image.py
+export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
+./gradlew build
+java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar
+```
+
+Check `curl --fail http://127.0.0.1:8080/actuator/health` in another terminal. Stop the API with Ctrl-C. Use `docker compose -p harness-tryout down` when finished; plain `docker compose down` addresses the default project instead. Both database volumes are preserved.
+
+### If Temporal schema setup fails
+
+Inspect `docker compose logs temporal-schema` (or `docker compose -p harness-tryout logs temporal-schema` for the separate project). If it reports `password authentication failed for user "temporal"` (`28P01`) while PostgreSQL is healthy, the database volume and mounted secret file disagree. PostgreSQL health alone does not verify application credentials. Choose [credential rotation](#existing-databases-and-credential-rotation) or a [separate clean test project](#separate-clean-test-project). Do not replace secrets repeatedly or remove the volume to make startup pass.
 
 ## Process roles
 
@@ -44,7 +76,7 @@ java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profil
 
 `api` is the default and exposes loopback HTTP with a Temporal client. `worker` registers the coding workflow and Activities on the `coding-v1` task queue and starts polling Temporal. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
 
-Spring AI's Ollama library is included without model auto-configuration. No model request or model download occurs in this foundation.
+Application startup does not select or download an Ollama model. The opt-in local profile probe can make a model request when `HARNESS_OLLAMA_MODEL` names an installed tag; see [the local model boundary](#explicit-local-model-boundary-task-5).
 
 ## Configuration
 
@@ -92,7 +124,7 @@ docker compose down
 
 The named `postgres-data` volume preserves application data and Temporal history across service recreation. Avoid `down -v` unless intentionally discarding all local data. Initialization scripts and initial passwords apply only to an empty volume; changing environment passwords does not rotate existing database credentials. Application shutdown closes Temporal client resources and the worker factory.
 
-This task verifies durable storage, not agent continuation. Coding workflow replay, crash recovery, and deployment compatibility are later acceptance gates.
+The scripted coding workflow and component recovery checks do not establish full crash or deployment continuity. Those acceptance checks remain Task 9 work; a live Ollama benchmark run remains Task 10 work.
 
 ## Tested dependency baseline
 
