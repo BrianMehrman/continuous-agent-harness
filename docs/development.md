@@ -42,7 +42,7 @@ Expect HTTP 200 and `status: UP`. This is application/database health; the integ
 
 The Groovy DSL build uses Java 21 toolchains, native BOM constraints, and a committed `gradle.lockfile`. To intentionally update dependencies, review the version changes, run `./gradlew dependencies --write-locks`, then verify the full build. Do not refresh locks as part of ordinary builds. For local API development, use `./gradlew bootRun`.
 
-The API currently exposes health but no coding-run submission endpoint or operator CLI. The scripted workflow is covered by tests; a live Ollama task-tracker run is not yet available through the API.
+The API exposes run submission, status, events, cancellation, profile probing, and run-scoped artifact downloads. See the [operator API and CLI guide](api.md) for a complete run. A live Ollama benchmark pass has not yet been established; Task 10 records that evidence.
 
 ### Separate clean test project
 

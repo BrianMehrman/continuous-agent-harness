@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Local operator client for the harness API. Uses only Python's standard library."""
+
+import argparse
+import json
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+DEFAULT_LIMITS = {
+    "modelTurns": 40, "toolCalls": 100, "modelAttempts": 80,
+    "perTurnModelAttempts": 2, "runnerAttempts": 2,
+    "modelAttemptMillis": 180000, "buildTestMillis": 120000,
+    "evaluationMillis": 180000, "fileOperationMillis": 10000,
+    "runMillis": 1800000,
+}
+
+
+class ApiClient:
+    def __init__(self, base_url):
+        parsed = urllib.parse.urlparse(base_url)
+        if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+            raise ValueError("--url must be a loopback HTTP origin")
+        self.base_url = base_url.rstrip("/")
+
+    def request(self, method, path, payload=None, binary=False):
+        body = None if payload is None else json.dumps(payload).encode("utf-8")
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(self.base_url + path, data=body, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read()
+                return data if binary else json.loads(data)
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.loads(error.read()).get("error", error.reason)
+            except (ValueError, AttributeError):
+                detail = error.reason
+            raise RuntimeError(f"HTTP {error.code}: {detail}") from error
+
+
+def event_stream(client, run_id, after=0, follow=False, interval=1.0):
+    """Yield each sequence once; reconnect after transient transport failures."""
+    cursor = after
+    while True:
+        try:
+            events = client.request("GET", f"/api/runs/{quote(run_id)}/events?after={cursor}")
+        except (urllib.error.URLError, TimeoutError):
+            if not follow:
+                raise
+            time.sleep(interval)
+            continue
+        for event in events:
+            sequence = event["sequence"]
+            if sequence > cursor:
+                yield event
+                cursor = sequence
+        if not follow:
+            return
+        time.sleep(interval)
+
+
+def quote(value):
+    return urllib.parse.quote(value, safe="")
+
+
+def parser():
+    root = argparse.ArgumentParser(description=__doc__)
+    root.add_argument("--url", default="http://127.0.0.1:8080")
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("profiles")
+    probe = commands.add_parser("probe")
+    probe.add_argument("model_tag")
+    start = commands.add_parser("start")
+    start.add_argument("--profile", required=True)
+    start.add_argument("--benchmark", default="task-tracker-v1")
+    start.add_argument("--limits", type=Path, help="JSON file containing all run limits")
+    start.add_argument("--command-id", default=None)
+    status = commands.add_parser("status")
+    status.add_argument("run_id", nargs="?")
+    events = commands.add_parser("events")
+    events.add_argument("run_id")
+    events.add_argument("--after", type=int, default=0)
+    events.add_argument("--follow", action="store_true")
+    cancel = commands.add_parser("cancel")
+    cancel.add_argument("run_id")
+    cancel.add_argument("--expected-version", type=int, required=True)
+    cancel.add_argument("--command-id", default=None)
+    download = commands.add_parser("download")
+    download.add_argument("run_id")
+    download.add_argument("digest")
+    download.add_argument("--output", type=Path, required=True)
+    return root
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    client = ApiClient(args.url)
+    if args.command == "profiles":
+        result = client.request("GET", "/api/profiles")
+    elif args.command == "probe":
+        result = client.request("POST", "/api/profiles/probe", {"modelTag": args.model_tag})
+    elif args.command == "start":
+        limits = json.loads(args.limits.read_text()) if args.limits else DEFAULT_LIMITS
+        result = client.request("POST", "/api/runs", {
+            "commandId": args.command_id or str(uuid.uuid4()),
+            "benchmarkVersion": args.benchmark,
+            "profileRevision": args.profile,
+            "limits": limits,
+        })
+        print(f"runId={result['runId']} commandId={result['commandId']}")
+        return 0
+    elif args.command == "status":
+        result = client.request("GET", "/api/runs" + ("/" + quote(args.run_id) if args.run_id else ""))
+    elif args.command == "events":
+        if args.after < 0:
+            raise ValueError("--after must be nonnegative")
+        for event in event_stream(client, args.run_id, args.after, args.follow):
+            print(json.dumps(event, sort_keys=True), flush=True)
+        return 0
+    elif args.command == "cancel":
+        result = client.request("POST", f"/api/runs/{quote(args.run_id)}/cancel", {
+            "commandId": args.command_id or str(uuid.uuid4()),
+            "expectedVersion": args.expected_version,
+        })
+    elif args.command == "download":
+        if len(args.digest) != 64 or any(c not in "0123456789abcdef" for c in args.digest):
+            raise ValueError("digest must be a lowercase SHA-256 hex string")
+        data = client.request("GET", f"/api/runs/{quote(args.run_id)}/artifacts/{args.digest}", binary=True)
+        args.output.write_bytes(data)
+        print(f"wrote {len(data)} bytes to {args.output}")
+        return 0
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (ValueError, RuntimeError, OSError) as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)

@@ -4,7 +4,7 @@ This project is a Java 21 / Spring Boot harness for durable AI coding runs. The 
 
 ## Where things live
 
-- `src/main/java/`: the harness packages include `workspace/` for immutable source snapshots, `runner/` for bounded Docker build/test work, `benchmark/` for independent evaluation, and `config/` for process roles and infrastructure. Future `model/`, `runs/`, `execution/`, and `api/` packages are assigned in the implementation plan. Do not add a package just because the plan mentions a future task.
+- `src/main/java/`: `workspace/` owns immutable snapshots, `runner/` bounded Docker work, `benchmark/` independent evaluation, `model/` local model profiles and calls, `runs/` command delivery and projections, `execution/` the coding workflow, `api/` local operator routes, and `config/` process roles. Do not add a package just because the plan mentions a future task.
 - `src/test/java/`: unit tests and `*IT` integration tests. Private good/broken tracker implementations under `benchmark/fixtures/` are test-only.
 - `benchmarks/task-tracker-v1/starter/`: the model-visible, deliberately unimplemented CLI. `REQUIREMENTS.md` is its public behavior contract. Never copy private evaluator fixtures or expected answers into the starter, model prompt, or runner image.
 - `runner/`: trusted image and fixed command manifests. `src/main/resources/db/migration/`: application Flyway migrations. `compose.yaml`, `config/`, and `scripts/`: local services, pinned images, and setup helpers.
@@ -13,12 +13,12 @@ This project is a Java 21 / Spring Boot harness for durable AI coding runs. The 
 ## Build and verification
 
 - Use the committed Gradle wrapper, not Maven or a globally installed Gradle. `./gradlew test` runs unit tests without Docker. `./gradlew build` runs unit and `*IT` integration tests and packages the application; it requires local PostgreSQL, Temporal, a working Docker daemon, and the pinned runner image. See [local development](docs/development.md) before starting those services. Use focused `--tests` filters while iterating, then run checks appropriate to the changed behavior.
-- Runtime roles are `api`, `worker`, and `runner`. The API is currently a foundation, not a completed coding-run submission surface; the model loop, durable command delivery, operator API, and live benchmark are later plan tasks. Do not report a scripted or fixture result as live Ollama completion.
+- Runtime roles are `api`, `worker`, and `runner`. The loopback API and CLI submit and observe runs; see [operator API and CLI](docs/api.md). Recovery/deployment proof and a live Ollama benchmark are later plan tasks. Do not report a scripted or fixture result as live Ollama completion.
 - Preserve Gradle dependency locks and checksum verification. Update them only for an intentional dependency change, after checking the new coordinates and hashes against trusted source evidence.
 
 ## Git and task workflow
 
-- Work in the primary checkout. Use a worktree only for a real parallel work stream. Before creating a feature branch, fetch `origin`, switch to `main`, update local `main` to `origin/main`, and verify the checkout is clean and both commits match. Do not discard existing work.
+- Work in the primary checkout. Use a worktree only for a real parallel work stream. Before creating a feature branch, fetch `origin`, switch to `main`, run `git pull --ff-only origin main`, and verify the checkout is clean and both commits match. Do not discard existing work.
 - Agree on a plan before implementing code. Keep each task on a focused branch and within its planned scope; add meaningful tests for behavior changes. If a branch drifts, rebase onto updated `main`. Never merge another branch into it; reproduce small abandoned changes or cherry-pick larger ones when necessary.
 - Integrate through a PR only. Push the branch and open a PR after verification. Never merge directly into `main`, `master`, `dev`, or `develop`, locally or remotely. Leave PR merging to the user unless explicitly asked. Confirm the PR actually merged before marking a task complete or moving the handoff forward.
 

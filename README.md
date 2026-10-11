@@ -13,7 +13,7 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-Tasks 1–7 have delivered the Java 21 / Spring Boot foundation, immutable workspaces, isolated runner, independent evaluator, local Ollama adapter, durable run commands, and a scripted Temporal coding loop. The operator API and CLI are the next task. You can start the API, check its health, and run the test suite today; you cannot yet submit a coding run through a public API or CLI. A live Ollama task-tracker benchmark remains future work. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
+Tasks 1–7 delivered the Java 21 / Spring Boot foundation, immutable workspaces, isolated runner, independent evaluator, local Ollama adapter, durable run commands, and a scripted Temporal coding loop. This revision adds the loopback operator API and CLI for submitting and observing runs. Crash/deployment proof and a live Ollama task-tracker benchmark remain future work. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
 
 ## Quick start
 
@@ -40,6 +40,7 @@ The specifications describe the broader intended behavior; ADRs marked **Propose
 | Document | Purpose |
 |---|---|
 | [Project handoff](docs/STATUS.md) | Completed tasks, next task, and current constraints |
+| [Operator API and CLI](docs/api.md) | Run submission, events, cancellation, profile probe, and artifact downloads |
 | [Local coding benchmark](docs/specs/local-task-tracker-benchmark.md) | First target: a Java task-tracker CLI built by a local Ollama model |
 | [Local coding implementation plan](docs/plans/2026-09-20-local-task-tracker-implementation.md) | File-level tasks, tests, recovery checks, and local acceptance |
 | [Current durable foundation](docs/specs/spring-boot-durable-foundation.md) | Spring Boot, first-version recovery, proposed execution ownership |
