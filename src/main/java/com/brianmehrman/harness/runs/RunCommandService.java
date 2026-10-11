@@ -43,6 +43,9 @@ public class RunCommandService {
             var previous = jdbc.query("select run_id,input_sha256 from run_request where command_id=?",
                     (rs, row) -> new String[]{rs.getString(1), rs.getString(2)}, command.commandId());
             if (!previous.isEmpty()) return existingStart(command, inputSha256, previous.getFirst());
+            if (Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_command where command_id=?)",
+                    Boolean.class, command.commandId())))
+                throw new IllegalArgumentException("Start command ID reused with different input");
             if (!definition.benchmarkVersion().equals(command.benchmarkVersion()))
                 throw new IllegalArgumentException("Unknown benchmark version");
             var profile = profiles.get(command.profileRevision());

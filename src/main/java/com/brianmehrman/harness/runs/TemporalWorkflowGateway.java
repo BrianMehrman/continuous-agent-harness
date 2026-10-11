@@ -84,6 +84,12 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
         }
     }
 
+    @Override public long authoritativeVersion(String runId) {
+        RunView view = client.newWorkflowStub(CodingWorkflow.class, runId).current();
+        if (view == null) throw new IllegalStateException("Workflow query returned no state");
+        return view.version();
+    }
+
     private static boolean terminal(String status) {
         return switch (status) {
             case "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
