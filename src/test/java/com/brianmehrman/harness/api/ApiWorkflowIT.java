@@ -80,7 +80,8 @@ class ApiWorkflowIT {
                 var get = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/runs/" + run)).GET().build();
                 detail = json.readTree(http.send(get, HttpResponse.BodyHandlers.ofString()).body());
                 if ("FAILED".equals(detail.path("projection").path("status").asText()) &&
-                        detail.path("projection").path("lastSequence").asLong() > 0) break;
+                        detail.path("projection").path("lastSequence").asLong() > 0 &&
+                        !detail.path("projection").path("stale").asBoolean()) break;
                 Thread.sleep(100);
             }
             assertNotNull(detail);

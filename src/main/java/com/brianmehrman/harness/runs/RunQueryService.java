@@ -94,8 +94,8 @@ public class RunQueryService {
         boolean delivered = Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_command " +
                 "where run_id=? and kind='START' and delivered_at is not null)", Boolean.class, runId));
         if (delivered) {
-            WorkflowGateway.WorkflowDescription actual = gateway.describe(runId);
-            if (actual != null) return actual.version();
+            try { return gateway.authoritativeVersion(runId); }
+            catch (RuntimeException unavailable) { throw new AuthorityUnavailable(); }
         }
         return view.version();
     }
@@ -113,4 +113,7 @@ public class RunQueryService {
             JsonNode applicationOutcome, String lastErrorCode) {}
     public record EventView(long sequence, String eventId, String type, String payloadBlobId) {}
     public record Artifact(String mediaType, byte[] content) {}
+    public static final class AuthorityUnavailable extends RuntimeException {
+        public AuthorityUnavailable() { super("Authoritative workflow version unavailable"); }
+    }
 }

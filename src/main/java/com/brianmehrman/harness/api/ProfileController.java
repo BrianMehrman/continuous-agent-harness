@@ -38,6 +38,12 @@ public class ProfileController {
         String tag = RunController.string(data, "modelTag");
         try { return ProfileView.from(models.selectLocalProfile(profiles, tag)); }
         catch (IllegalArgumentException invalid) { throw new RunController.BadInput(invalid.getMessage()); }
+        catch (IllegalStateException failed) {
+            if (Set.of("LOCAL_WEIGHTS_UNVERIFIED", "LOCAL_TOOL_MODEL_UNVERIFIED", "PROFILE_DRIFT")
+                    .contains(failed.getMessage()))
+                throw new RunController.BadInput(failed.getMessage());
+            throw new ApiErrors.ServiceUnavailable("Local model probe unavailable");
+        }
     }
 
     public record ProfileView(String id, String adapter, String endpoint, String modelTag,

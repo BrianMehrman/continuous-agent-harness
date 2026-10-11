@@ -20,6 +20,12 @@ DEFAULT_LIMITS = {
 }
 
 
+class ApiHttpError(RuntimeError):
+    def __init__(self, status, detail):
+        self.status = status
+        super().__init__(f"HTTP {status}: {detail}")
+
+
 class ApiClient:
     def __init__(self, base_url):
         parsed = urllib.parse.urlparse(base_url)
@@ -42,7 +48,7 @@ class ApiClient:
                 detail = json.loads(error.read()).get("error", error.reason)
             except (ValueError, AttributeError):
                 detail = error.reason
-            raise RuntimeError(f"HTTP {error.code}: {detail}") from error
+            raise ApiHttpError(error.code, detail) from error
 
 
 def event_stream(client, run_id, after=0, follow=False, interval=1.0):
@@ -51,6 +57,11 @@ def event_stream(client, run_id, after=0, follow=False, interval=1.0):
     while True:
         try:
             events = client.request("GET", f"/api/runs/{quote(run_id)}/events?after={cursor}")
+        except ApiHttpError as error:
+            if not follow or not (error.status in (408, 429) or 500 <= error.status < 600):
+                raise
+            time.sleep(interval)
+            continue
         except (urllib.error.URLError, TimeoutError):
             if not follow:
                 raise

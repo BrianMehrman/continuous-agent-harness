@@ -63,6 +63,10 @@ class RunApiIT {
         assertEquals(2, page.size());
         assertEquals(1, json.readTree(request("GET", "/api/runs/" + runId + "/events?after=1", null).body()).size());
         assertEquals(2, json.readTree(request("GET", "/api/runs/" + runId, null).body()).path("projection").path("lastSequence").asInt());
+        String cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 1));
+        assertEquals(409, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
+        cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 2));
+        assertEquals(202, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
         jdbc.update("update run_command set delivered_at=now(),outcome_json='{}'::jsonb where command_id=?", commandId);
         JsonNode delivered = json.readTree(request("GET", "/api/runs/" + runId, null).body()).path("commands").get(0);
         assertEquals("DELIVERED", delivered.path("deliveryStatus").asText());
@@ -70,11 +74,6 @@ class RunApiIT {
         JsonNode retried = json.readTree(request("POST", "/api/runs", body).body());
         assertEquals("DELIVERED", retried.path("deliveryStatus").asText());
         assertTrue(retried.path("applicationOutcome").isObject());
-
-        String cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 1));
-        assertEquals(409, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
-        cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 2));
-        assertEquals(202, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
     }
 
     @Test void runScopedArtifactAndMalformedInputs() throws Exception {
@@ -135,6 +134,23 @@ class RunApiIT {
         assertFalse(view.path("stale").asBoolean());
         assertEquals(2, view.path("lastSequence").asInt());
         assertEquals(2, json.readTree(request("GET", "/api/runs/" + run + "/events?after=0", null).body()).size());
+    }
+
+    @Test void deliveredStartWithoutAuthoritativeVersionCannotAcceptCancel() throws Exception {
+        String profile = "api-test-" + UUID.randomUUID();
+        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+                "a".repeat(64), 8192, 1024, 0, true, null));
+        String commandId = "start-" + UUID.randomUUID();
+        String body = json.writeValueAsString(Map.of("commandId", commandId,
+                "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
+                "limits", Limits.codingDefaults()));
+        String run = json.readTree(request("POST", "/api/runs", body).body()).path("runId").asText();
+        jdbc.update("update run_command set delivered_at=now() where command_id=?", commandId);
+        String cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(),
+                "expectedVersion", 0));
+        assertEquals(503, request("POST", "/api/runs/" + run + "/cancel", cancel).statusCode());
+        assertEquals(0, jdbc.queryForObject("select count(*) from run_command where run_id=? and kind='CANCEL'",
+                Integer.class, run));
     }
 
     private String event(String runId, long sequence, long version, String status) {

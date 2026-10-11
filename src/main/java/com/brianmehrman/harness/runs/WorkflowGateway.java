@@ -15,4 +15,9 @@ public interface WorkflowGateway {
     StartReceipt start(RunSpec spec);
     CommandResult cancel(String runId, CancelCommand command);
     WorkflowDescription describe(String runId);
+
+    /** A live workflow query, with no projection or description fallback. */
+    default long authoritativeVersion(String runId) {
+        throw new UnsupportedOperationException("Authoritative version query not available");
+    }
 }

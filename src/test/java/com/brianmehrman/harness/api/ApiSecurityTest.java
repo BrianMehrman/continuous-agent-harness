@@ -27,6 +27,19 @@ class ApiSecurityTest {
         var response = new MockHttpServletResponse();
         filter.doFilter(request, response, (req, res) -> fail("cross-site mutation passed"));
         assertEquals(403, response.getStatus());
+        var rebound = request("application/json");
+        rebound.addHeader("Host", "evil.example:8080");
+        rebound.addHeader("Origin", "http://evil.example:8080");
+        rebound.addHeader("Sec-Fetch-Site", "same-origin");
+        var reboundResponse = new MockHttpServletResponse();
+        filter.doFilter(rebound, reboundResponse, (req, res) -> fail("rebound host passed"));
+        assertEquals(403, reboundResponse.getStatus());
+
+        var read = new MockHttpServletRequest("GET", "/api/runs");
+        read.addHeader("Host", "evil.example:8080");
+        var readResponse = new MockHttpServletResponse();
+        filter.doFilter(read, readResponse, (req, res) -> fail("rebound read passed"));
+        assertEquals(403, readResponse.getStatus());
     }
 
     private static MockHttpServletRequest request(String type) {

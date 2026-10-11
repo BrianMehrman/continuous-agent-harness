@@ -29,7 +29,7 @@ python3 scripts/harness.py cancel RUN_ID --expected-version VERSION --command-id
 python3 scripts/harness.py status RUN_ID
 ```
 
-The cancellation response also means accepted. The run detail later shows the workflow's application outcome. If the supplied version is already stale, the API responds `409`; a race after acceptance may still produce `REJECTED_VERSION` in `applicationOutcome`.
+The cancellation response also means accepted. The run detail later shows the workflow's application outcome. If the supplied version is already stale, the API responds `409`; if a delivered workflow cannot answer the authoritative version query, it responds `503` without accepting the cancellation. A race after acceptance may still produce `REJECTED_VERSION` in `applicationOutcome`.
 
 Event responses contain `payloadBlobId` SHA-256 digests. The event cursor returns only contiguous events, so a missing sequence cannot be skipped by a reconnecting client. Download one with:
 
@@ -52,6 +52,6 @@ The downloaded file is output data; inspect it with an editor or JSON viewer. Ru
 | `POST /api/profiles/probe` | Probe `{modelTag}` against installed local Ollama inventory and save a verified profile. |
 | `GET /api/runs/{id}/artifacts/{digest}` | Download a run-associated SHA-256 blob as an attachment. |
 
-All mutations require `Content-Type: application/json` and exact fields. `400` means malformed or unsupported input, `404` means unknown run or artifact, and `409` means a conflicting command identity or currently stale cancellation version. A supplied command ID is global and must not be reused for a different operation. The initial API is for a trusted local operator on loopback; it rejects foreign browser Origin and Fetch-Site mutation requests and does not enable CORS. It is not a hosted multi-user authentication boundary.
+All mutations require `Content-Type: application/json` and exact fields. `400` means malformed or unsupported input, `404` means unknown run or artifact, `409` means a conflicting command identity or currently stale cancellation version, and `503` means required local authority or model probing is unavailable. A supplied command ID is global and must not be reused for a different operation. The initial API is for a trusted local operator on loopback; it requires a loopback `Host` for every API request, rejects foreign browser Origin and Fetch-Site mutation requests, and does not enable CORS. It is not a hosted multi-user authentication boundary.
 
-The default limits are encoded in `scripts/harness.py`. Supply `--limits limits.json` to start with all ten explicit bounds. `events --follow` resumes from its last printed sequence after a transient connection failure. The CLI's `--url` option accepts only a loopback HTTP origin.
+The default limits are encoded in `scripts/harness.py`. Supply `--limits limits.json` to start with all ten explicit bounds. `events --follow` resumes from its last printed sequence after a transient connection failure or temporary `5xx` response. The CLI's `--url` option accepts only a loopback HTTP origin.
