@@ -13,9 +13,27 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-Tasks 1–4 have delivered the Java 21 / Spring Boot and Gradle foundation, immutable workspace snapshots, an isolated build/test runner, and an independent task-tracker evaluator. Task 5, the scripted and local Ollama model boundary, is next. The coding loop and a live task-tracker benchmark remain upcoming work. The first implementation slice is operated through an API/CLI; the browser console and remote-provider comparison follow. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
+Tasks 1–7 have delivered the Java 21 / Spring Boot foundation, immutable workspaces, isolated runner, independent evaluator, local Ollama adapter, durable run commands, and a scripted Temporal coding loop. The operator API and CLI are the next task. You can start the API, check its health, and run the test suite today; you cannot yet submit a coding run through a public API or CLI. A live Ollama task-tracker benchmark remains future work. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
 
-See [local development](docs/development.md) for startup, tests, configuration, and verified compatibility. The specifications describe the broader intended behavior; ADRs marked **Proposed** remain recommendations for review.
+## Quick start
+
+Use Java 21, Python 3, and Docker with Compose v2. Run these commands from the repository root. **Before starting**, check [existing database guidance](docs/development.md#choose-a-database) if you have used this checkout before: an existing PostgreSQL volume keeps its passwords even when local secret files change.
+
+For a first-time setup with no credential files or existing database volume:
+
+```sh
+python3 scripts/create-local-secrets.py
+docker compose up -d --wait postgres temporal
+docker compose run --rm --no-deps temporal-namespace
+python3 scripts/build-runner-image.py
+export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
+./gradlew build
+java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar
+```
+
+In another terminal, run `curl --fail http://127.0.0.1:8080/actuator/health` and expect `"status":"UP"`. The build runs unit and integration tests; `./gradlew test` runs unit tests without Docker. Stop the API with Ctrl-C, then run `docker compose down` to stop the default Compose project while preserving its database volume. See [local development](docs/development.md) for existing credentials, an isolated test project, troubleshooting, process roles, and configuration.
+
+The specifications describe the broader intended behavior; ADRs marked **Proposed** remain recommendations for review.
 
 ## Documentation
 
