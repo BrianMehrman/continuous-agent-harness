@@ -3,6 +3,7 @@ package com.brianmehrman.harness.recovery;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.brianmehrman.harness.execution.CodingWorkflow;
+import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.model.ProfileRevision;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -162,6 +164,62 @@ class CodingRunRecoveryIT {
                     Integer.class, runId)).isEqualTo(1);
         } finally {
             if (temporalStopped) compose("up", "-d", "--wait", "temporal");
+            if (worker != null && worker.isAlive()) stop(worker);
+            Files.deleteIfExists(marker);
+            if (changedRouting) restoreCurrentBuild(previousCurrent);
+        }
+    }
+
+    @Test
+    void cancellationQueuedWhileWorkerIsAbsentStopsFurtherModelCallsAfterDelivery() throws Exception {
+        String build = "sha256:" + UUID.randomUUID().toString().replace("-", "") + "c".repeat(32);
+        String previousCurrent = currentBuildId();
+        String profile = "task9-cancel-profile-" + UUID.randomUUID();
+        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+                "a".repeat(64), 8192, 1024, 0, true, null));
+        Path marker = Path.of("build", "task9-cancel-model-entered-" + UUID.randomUUID());
+        Path logs = Files.createTempDirectory(Path.of("build"), "task9-cancel-absent-worker-");
+        Process worker = null;
+        boolean changedRouting = false;
+        var delivery = Executors.newSingleThreadExecutor();
+        try {
+            worker = startWorker(build, marker, logs.resolve("worker-first.log"));
+            awaitProcessAlive(worker);
+            awaitBuildRegistered(build);
+            setCurrentBuild(build);
+            changedRouting = true;
+
+            var limits = new Limits(2, 20, 4, 2, 2, 30_000, 120_000, 180_000, 10_000, 120_000);
+            var accepted = commands.start(new StartCommand("task9-cancel-" + UUID.randomUUID(),
+                    "task-tracker-v1", profile, limits));
+            String runId = accepted.runId();
+            String seedSnapshot = projections.view(runId).snapshotSha256();
+            assertThat(dispatcher.dispatchOnce(runId)).isTrue();
+            await(Duration.ofSeconds(30), () -> Files.exists(marker) && "IN_FLIGHT".equals(
+                    attemptStatus(runId, runId + ":turn-1", 1)));
+
+            stop(worker);
+            String cancelId = "task9-cancel-command-" + UUID.randomUUID();
+            assertThat(commands.cancel(runId, new CancelCommand(cancelId, projections.view(runId).version()))
+                    .deliveryStatus()).isEqualTo("ACCEPTED");
+            var pendingDelivery = delivery.submit(() -> dispatcher.dispatchOnce(runId));
+            await(Duration.ofSeconds(10), () -> jdbc.queryForObject(
+                    "select lease_owner is not null from run_command where command_id=?",
+                    Boolean.class, cancelId));
+            assertThat(projections.view(runId).status()).isEqualTo("RUNNING");
+
+            worker = startWorker(build, marker, logs.resolve("worker-restarted.log"));
+            awaitProcessAlive(worker);
+            assertThat(pendingDelivery.get(45, TimeUnit.SECONDS)).isTrue();
+            int attemptsAtDelivery = jdbc.queryForObject(
+                    "select count(*) from model_attempt where run_id=?", Integer.class, runId);
+            await(Duration.ofSeconds(45), () -> "CANCELLED".equals(projections.view(runId).status()));
+            assertThat(projections.view(runId).snapshotSha256()).isEqualTo(seedSnapshot);
+            assertThat(attemptsAtDelivery).isBetween(1, 2);
+            assertThat(jdbc.queryForObject("select count(*) from model_attempt where run_id=?",
+                    Integer.class, runId)).isEqualTo(attemptsAtDelivery);
+        } finally {
+            delivery.shutdownNow();
             if (worker != null && worker.isAlive()) stop(worker);
             Files.deleteIfExists(marker);
             if (changedRouting) restoreCurrentBuild(previousCurrent);

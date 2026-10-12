@@ -67,6 +67,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             String invocation = input.runId() + ":turn-" + turn;
             ModelReply reply = null;
             for (int attempt = 1; attempt <= input.limits().perTurnModelAttempts(); attempt++) {
+                if (cancelRequested) return terminal("CANCELLED");
                 if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                 if (++dispatchedModelAttempts > input.limits().modelAttempts())
                     return terminal("LIMIT_EXHAUSTED");
@@ -79,6 +80,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                             input.profileRevision(), conversation, modelDeadline));
                     break;
                 } catch (ActivityFailure error) {
+                    if (cancelRequested) return terminal("CANCELLED");
                     if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                     String failureType = modelFailureType(error);
                     if ("MODEL_CONTEXT_OVERFLOW".equals(failureType)) return terminal("CONTEXT_OVERFLOW");
