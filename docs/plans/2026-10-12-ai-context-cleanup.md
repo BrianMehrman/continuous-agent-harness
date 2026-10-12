@@ -221,7 +221,7 @@ git commit -m "docs: add status, evidence, and test-scope rules for agents"
 - Modify: `docs/plans/2026-09-20-local-task-tracker-implementation.md` (line 3), `docs/plans/2026-09-26-gradle-migration.md` (line 3), `.gitignore`
 - Create: `CLAUDE.md`
 
-- [ ] **Step 1: Replace the implementation plan's agent header**
+- [x] **Step 1: Replace the implementation plan's agent header**
 
 In `docs/plans/2026-09-20-local-task-tracker-implementation.md`, replace the line beginning `> **For agentic workers:** REQUIRED SUB-SKILL` with:
 
@@ -229,7 +229,7 @@ In `docs/plans/2026-09-20-local-task-tracker-implementation.md`, replace the lin
 > **For agentic workers:** Execute one task at a time on its own branch, following [AGENTS.md](../../AGENTS.md). Tick a checkbox only after the step is done and verified; unchecked items are not implemented.
 ```
 
-- [ ] **Step 2: Replace the Gradle migration plan's agent header**
+- [x] **Step 2: Replace the Gradle migration plan's agent header**
 
 In `docs/plans/2026-09-26-gradle-migration.md`, replace the line beginning `> **For agentic workers:** Use superpowers:executing-plans` with:
 
@@ -237,7 +237,7 @@ In `docs/plans/2026-09-26-gradle-migration.md`, replace the line beginning `> **
 > **For agentic workers:** Completed plan, kept for history. Steps use checkbox (`- [x]`) syntax.
 ```
 
-- [ ] **Step 3: Create `CLAUDE.md`**
+- [x] **Step 3: Create `CLAUDE.md`**
 
 Full content:
 
@@ -247,7 +247,7 @@ Full content:
 
 Claude Code expands the `@` import. Every rule stays in `AGENTS.md`.
 
-- [ ] **Step 4: Ignore editor folders**
+- [x] **Step 4: Ignore editor folders**
 
 Append to `.gitignore`:
 
@@ -256,7 +256,7 @@ Append to `.gitignore`:
 /.vscode/
 ```
 
-- [ ] **Step 5: Check**
+- [x] **Step 5: Check**
 
 ```sh
 grep -rn "superpowers" AGENTS.md CLAUDE.md CODEX.md README.md docs/plans/2026-09-20-local-task-tracker-implementation.md docs/plans/2026-09-26-gradle-migration.md
@@ -265,7 +265,7 @@ git check-ignore -q .metals && git check-ignore -q .vscode && echo ignored
 
 Expected: the grep prints nothing; the second command prints `ignored`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add docs/plans/2026-09-20-local-task-tracker-implementation.md docs/plans/2026-09-26-gradle-migration.md CLAUDE.md .gitignore

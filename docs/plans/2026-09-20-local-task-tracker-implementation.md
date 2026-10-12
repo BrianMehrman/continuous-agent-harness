@@ -1,6 +1,6 @@
 # Local Task-Tracker Harness Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute one task at a time on its own branch, following [AGENTS.md](../../AGENTS.md). Tick a checkbox only after the step is done and verified; unchecked items are not implemented.
 
 **Goal:** Have a local model implement a verified Java task-tracker CLI, with recoverable source edits, bounded isolated build/test execution, and continuation after worker crashes and compatible deployments.
 
