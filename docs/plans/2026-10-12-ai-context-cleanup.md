@@ -278,7 +278,7 @@ git commit -m "docs: make plans tool-neutral and add agent entry points"
 
 **Files:** none changed.
 
-- [ ] **Step 1: Confirm no forbidden file changed**
+- [x] **Step 1: Confirm no forbidden file changed**
 
 ```sh
 git diff --name-only origin/main...HEAD
@@ -287,7 +287,7 @@ git diff --name-only origin/main...HEAD | grep -E '^(docs/(STATUS|development|ap
 
 Expected: the first command lists only `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `README.md`, `.gitignore`, `docs/sprints/01-observable-loop.md`, and the three files in `docs/plans/`. The second prints nothing.
 
-- [ ] **Step 2: Check links in changed Markdown files**
+- [x] **Step 2: Check links in changed Markdown files**
 
 ```sh
 git diff --name-only origin/main...HEAD -- '*.md' | grep -v '^docs/plans/2026-10-12-ai-context-cleanup.md$' | python3 -I -c '
@@ -307,7 +307,7 @@ sys.exit(1 if bad else 0)
 
 Expected: `links-ok`. This plan is excluded because its code blocks contain example links written relative to other files.
 
-- [ ] **Step 3: Review the diff and status**
+- [x] **Step 3: Review the diff and status**
 
 ```sh
 git diff origin/main...HEAD
@@ -316,7 +316,7 @@ git status --short
 
 Expected: only the edits from Tasks 1–4, no secrets or machine-specific paths other than the primary-checkout path in Task 1, and a clean status.
 
-- [ ] **Step 4: Push and open a PR (do not merge)**
+- [x] **Step 4: Push and open a PR (do not merge)**
 
 ```sh
 git push -u origin docs/ai-context-cleanup
