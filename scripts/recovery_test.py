@@ -35,9 +35,11 @@ def main() -> int:
     # the namespace's prior routing before it exits.
     if args.all:
         gradle("com.brianmehrman.harness.recovery.RecoveryIT",
-               "com.brianmehrman.harness.recovery.DeploymentIT")
+               "com.brianmehrman.harness.recovery.DeploymentIT",
+               "com.brianmehrman.harness.recovery.CodingRunRecoveryIT")
     else:
-        gradle("com.brianmehrman.harness.recovery.RecoveryIT")
+        gradle("com.brianmehrman.harness.recovery.RecoveryIT",
+               "com.brianmehrman.harness.recovery.CodingRunRecoveryIT")
     return 0
 
 

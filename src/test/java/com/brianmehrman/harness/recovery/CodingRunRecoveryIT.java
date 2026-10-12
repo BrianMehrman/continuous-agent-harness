@@ -114,6 +114,69 @@ class CodingRunRecoveryIT {
         }
     }
 
+    @Test
+    void deadlineExpiresWhileTemporalIsDownWithoutStartingAnotherModelCall() throws Exception {
+        String build = "sha256:" + UUID.randomUUID().toString().replace("-", "") + "b".repeat(32);
+        String previousCurrent = currentBuildId();
+        String profile = "task9-outage-profile-" + UUID.randomUUID();
+        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+                "a".repeat(64), 8192, 1024, 0, true, null));
+        Path marker = Path.of("build", "task9-outage-model-entered-" + UUID.randomUUID());
+        Path logs = Files.createTempDirectory(Path.of("build"), "task9-temporal-outage-");
+        Process worker = null;
+        boolean changedRouting = false;
+        boolean temporalStopped = false;
+        try {
+            worker = startWorker(build, marker, logs.resolve("worker-first.log"));
+            awaitProcessAlive(worker);
+            awaitBuildRegistered(build);
+            setCurrentBuild(build);
+            changedRouting = true;
+
+            var limits = new Limits(2, 20, 4, 2, 2, 30_000, 120_000, 180_000, 10_000, 8_000);
+            var accepted = commands.start(new StartCommand("task9-outage-" + UUID.randomUUID(),
+                    "task-tracker-v1", profile, limits));
+            String runId = accepted.runId();
+            String seedSnapshot = projections.view(runId).snapshotSha256();
+            assertThat(dispatcher.dispatchOnce(runId)).isTrue();
+            await(Duration.ofSeconds(30), () -> Files.exists(marker) && "IN_FLIGHT".equals(
+                    attemptStatus(runId, runId + ":turn-1", 1)));
+            long deadline = System.nanoTime() + Duration.ofMillis(limits.runMillis()).toNanos();
+
+            compose("stop", "temporal");
+            temporalStopped = true;
+            stop(worker);
+            while (System.nanoTime() < deadline) Thread.sleep(100);
+            compose("up", "-d", "--wait", "temporal");
+            temporalStopped = false;
+
+            worker = startWorker(build, marker, logs.resolve("worker-restarted.log"));
+            awaitProcessAlive(worker);
+            await(Duration.ofSeconds(60), () -> "EXPIRED".equals(projections.view(runId).status()));
+            var result = WorkflowStub.fromTyped(client.newWorkflowStub(CodingWorkflow.class, runId))
+                    .getResult(10, TimeUnit.SECONDS, com.brianmehrman.harness.execution.RunView.class);
+            assertThat(result.runId()).isEqualTo(runId);
+            assertThat(result.status()).isEqualTo("EXPIRED");
+            assertThat(projections.view(runId).snapshotSha256()).isEqualTo(seedSnapshot);
+            assertThat(jdbc.queryForObject("select count(*) from model_attempt where run_id=?",
+                    Integer.class, runId)).isEqualTo(1);
+        } finally {
+            if (temporalStopped) compose("up", "-d", "--wait", "temporal");
+            if (worker != null && worker.isAlive()) stop(worker);
+            Files.deleteIfExists(marker);
+            if (changedRouting) restoreCurrentBuild(previousCurrent);
+        }
+    }
+
+    private void compose(String... args) throws Exception {
+        var command = new ArrayList<>(List.of("docker", "compose", "-p", COMPOSE_PROJECT));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        byte[] output = process.getInputStream().readAllBytes();
+        if (!process.waitFor(60, TimeUnit.SECONDS) || process.exitValue() != 0)
+            throw new AssertionError("Compose command failed: " + new String(output));
+    }
+
     private String attemptStatus(String runId, String invocationId, int attempt) {
         var rows = jdbc.queryForList("select status from model_attempt where run_id=? and invocation_id=? and attempt=?",
                 String.class, runId, invocationId, attempt);

@@ -40,6 +40,6 @@ python3 scripts/recovery_test.py --all
 python3 scripts/deployment_test.py --forward-and-rollback
 ```
 
-The deployment test starts labeled-by-test worker JVMs, uses the current Temporal CLI deployment API, checks v1/v2 assignment through a forward change and rollback, restarts v1, and restores the namespace's original current route. It leaves task output under `build/task9-deployment-*` for inspection. The Python recovery command runs the Java integration suites; it does not provision or stop shared services.
+The deployment test starts labeled-by-test worker JVMs, uses the current Temporal CLI deployment API, checks v1/v2 assignment through a forward change and rollback, restarts v1, and restores the namespace's original current route. It leaves task output under `build/task9-deployment-*` for inspection. The Python recovery command runs the Java integration suites, including a coding run whose deadline passes during a Temporal outage. That test stops and restarts the Compose project's Temporal service while retaining PostgreSQL and its volume, so run it only against the task-owned local project. The command does not provision or stop the database.
 
 The repository also has focused persistence and fault tests for command redelivery, model-attempt receipts, runner reconciliation, and workflow replay. These checks do not, by themselves, claim that every crash point in the full end-to-end recovery matrix has been exercised.
