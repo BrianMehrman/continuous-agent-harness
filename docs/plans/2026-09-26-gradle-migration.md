@@ -1,6 +1,6 @@
 # Gradle Migration Implementation Plan
 
-> **For agentic workers:** Use superpowers:executing-plans to implement this plan task-by-task in the primary checkout. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** Completed plan, kept for history. Steps use checkbox (`- [x]`) syntax.
 
 **Goal:** Replace Maven with Gradle throughout the harness build and active benchmark/runner specifications, preserving the verified Task 1 behavior.
 

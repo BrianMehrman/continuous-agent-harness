@@ -1,6 +1,6 @@
 # Local Task-Tracker Harness Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute one task at a time on its own branch, following [AGENTS.md](../../AGENTS.md). Tick a checkbox only after the step is done and verified; unchecked items are not implemented.
 
 **Goal:** Have a local model implement a verified Java task-tracker CLI, with recoverable source edits, bounded isolated build/test execution, and continuation after worker crashes and compatible deployments.
 
@@ -10,7 +10,7 @@
 
 **Spec:** [Local task-tracker benchmark](../specs/local-task-tracker-benchmark.md), plus [durable foundation](../specs/spring-boot-durable-foundation.md) where not superseded.
 
-**Status:** Tasks 1–4 foundation, immutable workspaces, isolated command runner, and independent evaluation are merged. Task 5 is next; later tasks remain planned. See the [current handoff](../STATUS.md) for merged evidence. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
+**Status:** See the [current handoff](../STATUS.md) for task progress. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
 
 ## Global constraints
 

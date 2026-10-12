@@ -10,16 +10,23 @@ This project is a Java 21 / Spring Boot harness for durable AI coding runs. The 
 - `runner/`: trusted image and fixed command manifests. `src/main/resources/db/migration/`: application Flyway migrations. `compose.yaml`, `config/`, and `scripts/`: local services, pinned images, and setup helpers.
 - `docs/specs/`: behavior and security boundaries; `docs/plans/`: delivery order; `docs/development.md`: exact local setup, test commands, and shutdown. ADRs marked **Proposed** are not automatically accepted implementation decisions.
 
+## Status, plans, and evidence
+
+- Record project status only in [docs/STATUS.md](docs/STATUS.md). Other files link to it instead of repeating task progress.
+- Plans and specs describe intended behavior. An unchecked plan item, or a spec requirement without code and a test, is not implemented. Verify against the code and test results before repeating a claim.
+- A pass/fail claim names the command, date, and commit it ran against. A code change after that run invalidates the claim until the command is rerun.
+
 ## Build and verification
 
 - Use the committed Gradle wrapper, not Maven or a globally installed Gradle. `./gradlew test` runs unit tests without Docker. `./gradlew build` runs unit and `*IT` integration tests and packages the application; it requires local PostgreSQL, Temporal, a working Docker daemon, and the pinned runner image. See [local development](docs/development.md) before starting those services. Use focused `--tests` filters while iterating, then run checks appropriate to the changed behavior.
-- Runtime roles are `api`, `worker`, and `runner`. The loopback API and CLI submit and observe runs; see [operator API and CLI](docs/api.md). Recovery/deployment proof and a live Ollama benchmark are later plan tasks. Do not report a scripted or fixture result as live Ollama completion.
+- Runtime roles are `api`, `worker`, and `runner`. The loopback API and CLI submit and observe runs; see [operator API and CLI](docs/api.md). Do not report a scripted or fixture result as live Ollama completion.
+- Integration tests read `HARNESS_DB_URL` (default `jdbc:postgresql://127.0.0.1:55432/harness`), `HARNESS_TEMPORAL_TARGET` (default `127.0.0.1:7233`), and `HARNESS_RUNNER_IMAGE` (no default; runner and evaluator tests need the image ID from `runner/image.lock`). Use exact class names in `--tests` filters, for example `./gradlew integrationTest --tests 'com.brianmehrman.harness.execution.CodingWorkflowSmokeIT'`. The pattern `*RecoveryIT` also matches `RunnerRecoveryIT` and `EvaluationRuntimeRecoveryIT`, which need Docker and the runner image.
 - Preserve Gradle dependency locks and checksum verification. Update them only for an intentional dependency change, after checking the new coordinates and hashes against trusted source evidence.
 
 ## Git and task workflow
 
 - Work in the primary checkout. Use a worktree only for a real parallel work stream. Before creating a feature branch, fetch `origin`, switch to `main`, run `git pull --ff-only origin main`, and verify the checkout is clean and both commits match. Do not discard existing work.
-- Agree on a plan before implementing code. Keep each task on a focused branch and within its planned scope; add meaningful tests for behavior changes. If a branch drifts, rebase onto updated `main`. Never merge another branch into it; reproduce small abandoned changes or cherry-pick larger ones when necessary.
+- Agree on a plan before implementing code. Keep each task on a focused branch and within its planned scope. Tests cover the main features (safe file edits, isolated build/test, evaluator verdicts, the model adapter, the bounded coding loop, and the operator API/CLI) and the behavior a change touches. Do not add crash, race, recovery, or deployment-continuity tests unless the owner asks; this overrides test steps in existing plans. If a branch drifts, rebase onto updated `main`. Never merge another branch into it; reproduce small abandoned changes or cherry-pick larger ones when necessary.
 - Integrate through a PR only. Push the branch and open a PR after verification. Never merge directly into `main`, `master`, `dev`, or `develop`, locally or remotely. Leave PR merging to the user unless explicitly asked. Confirm the PR actually merged before marking a task complete or moving the handoff forward.
 
 ## Durability, security, and cleanup
