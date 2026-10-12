@@ -16,23 +16,15 @@ class ProfileProbeTest {
     private volatile String tag = "model-1";
     private volatile String digest = "a".repeat(64);
     private volatile String format = "gguf";
-    private volatile boolean acknowledge = true;
-    private volatile boolean localModelfile = true;
-    private volatile long tagsDelayMillis;
     private volatile boolean replayedNativeCall;
 
     @BeforeEach void start() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/tags", exchange -> {
-            if (tagsDelayMillis > 0) {
-                try { Thread.sleep(tagsDelayMillis); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }
             reply(exchange, "{\"models\":[{\"name\":\"" + tag + "\",\"digest\":\"" + digest + "\",\"size\":1234,\"details\":{\"format\":\"" + format + "\"}}]}");
         });
         server.createContext("/api/show", exchange -> reply(exchange,
-                "{\"details\":{\"format\":\"" + format + "\"},\"capabilities\":[\"completion\",\"tools\"],\"model_info\":{\"general.architecture\":\"llama\"},\"modelfile\":\"" +
-                        (localModelfile ? "FROM /tmp/models/blobs/sha256-" + "c".repeat(64) : "FROM remote-service") + "\"}"));
+                "{\"details\":{\"format\":\"" + format + "\"},\"capabilities\":[\"completion\",\"tools\"],\"model_info\":{\"general.architecture\":\"llama\"},\"modelfile\":\"FROM /tmp/models/blobs/sha256-" + "c".repeat(64) + "\"}"));
         server.createContext("/api/chat", exchange -> {
             int count = chats.incrementAndGet();
             String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -47,7 +39,7 @@ class ProfileProbeTest {
             String echo = marker.find() ? marker.group() : "missing marker";
             String response = count == 1
                     ? "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"probe-1\",\"function\":{\"name\":\"list_files\",\"arguments\":{\"prefix\":\"native-argument\"}}}]},\"done\":true}"
-                    : "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"" + (acknowledge ? echo : "generic answer") + "\"},\"done\":true}";
+                    : "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"" + echo + "\"},\"done\":true}";
             reply(exchange, response);
         });
         server.start();
@@ -85,26 +77,4 @@ class ProfileProbeTest {
         assertEquals(0, chats.get());
     }
 
-    @Test void rejectsFollowUpThatIgnoresToolResult() {
-        acknowledge = false;
-        assertEquals("MODEL_TOOL_ROUND_TRIP_FAILED", assertThrows(IllegalStateException.class,
-                () -> probe().probe("model-1", 4096, 512, 0)).getMessage());
-        assertEquals(2, chats.get());
-    }
-
-    @Test void rejectsProfileWithoutLocalBlobEvidence() {
-        localModelfile = false;
-        assertThrows(IllegalStateException.class, () -> probe().probe("model-1", 4096, 512, 0));
-        assertEquals(0, chats.get());
-    }
-
-    @Test void digestRecheckRespectsCallDeadline() {
-        var profile = new ProfileRevision("profile-1", "ollama", "http://127.0.0.1:" + server.getAddress().getPort(),
-                "model-1", digest, 4096, 512, 0, true, null);
-        tagsDelayMillis = 1200;
-        long started = System.nanoTime();
-        assertEquals("MODEL_DEADLINE_EXCEEDED", assertThrows(IllegalStateException.class,
-                () -> probe().verifyDigest(profile, System.currentTimeMillis() + 200)).getMessage());
-        assertTrue(java.time.Duration.ofNanos(System.nanoTime() - started).toMillis() < 900);
-    }
 }

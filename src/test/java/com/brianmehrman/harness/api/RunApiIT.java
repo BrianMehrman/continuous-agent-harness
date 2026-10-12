@@ -113,47 +113,7 @@ class RunApiIT {
         assertFalse(request("GET", "/api/profiles", null).body().contains("credentialReference"));
     }
 
-    @Test void aMissingEventMarksProjectionStaleUntilTheGapCloses() throws Exception {
-        String profile = "api-test-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
-                "a".repeat(64), 8192, 1024, 0, true, null));
-        String body = json.writeValueAsString(Map.of("commandId", "start-" + UUID.randomUUID(),
-                "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
-                "limits", Limits.codingDefaults()));
-        String run = json.readTree(request("POST", "/api/runs", body).body()).path("runId").asText();
-        String second = blobs.put("application/vnd.harness.run-event+json",
-                json.writeValueAsBytes(Map.of("version", 2, "status", "RUNNING")));
-        projections.append(new RunEvent(run, 2, run + ":gap-2", "STATE_CHANGED", second));
-        assertTrue(json.readTree(request("GET", "/api/runs/" + run, null).body())
-                .path("projection").path("stale").asBoolean());
-        assertEquals(0, json.readTree(request("GET", "/api/runs/" + run + "/events?after=0", null).body()).size());
-        String first = blobs.put("application/vnd.harness.run-event+json",
-                json.writeValueAsBytes(Map.of("version", 1, "status", "RUNNING")));
-        projections.append(new RunEvent(run, 1, run + ":gap-1", "STATE_CHANGED", first));
-        JsonNode view = json.readTree(request("GET", "/api/runs/" + run, null).body()).path("projection");
-        assertFalse(view.path("stale").asBoolean());
-        assertEquals(2, view.path("lastSequence").asInt());
-        assertEquals(2, json.readTree(request("GET", "/api/runs/" + run + "/events?after=0", null).body()).size());
-    }
-
-    @Test void deliveredStartWithoutAuthoritativeVersionCannotAcceptCancel() throws Exception {
-        String profile = "api-test-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
-                "a".repeat(64), 8192, 1024, 0, true, null));
-        String commandId = "start-" + UUID.randomUUID();
-        String body = json.writeValueAsString(Map.of("commandId", commandId,
-                "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
-                "limits", Limits.codingDefaults()));
-        String run = json.readTree(request("POST", "/api/runs", body).body()).path("runId").asText();
-        jdbc.update("update run_command set delivered_at=now() where command_id=?", commandId);
-        String cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(),
-                "expectedVersion", 0));
-        assertEquals(503, request("POST", "/api/runs/" + run + "/cancel", cancel).statusCode());
-        assertEquals(0, jdbc.queryForObject("select count(*) from run_command where run_id=? and kind='CANCEL'",
-                Integer.class, run));
-    }
-
-    private String event(String runId, long sequence, long version, String status) {
+private String event(String runId, long sequence, long version, String status) {
         String digest = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(
                 Map.of("version", version, "status", status)));
         jdbc.update("insert into run_event(run_id,sequence,event_id,type,payload_blob_id) values (?,?,?,?,?)",

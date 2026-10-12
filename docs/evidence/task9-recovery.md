@@ -1,5 +1,7 @@
 # Task 9 recovery evidence
 
+Historical record: the test classes and scripts named below were removed during the subsequent main-feature test cleanup. These commands document what passed on the stated commit; they are no longer runnable at current HEAD.
+
 Tested on 2026-10-11 and 2026-10-12 with PostgreSQL 17, Temporal server 1.32.0, Temporal CLI 1.9.0, and the local pinned runner image. The task-owned Compose project was `harness-tryout`; its PostgreSQL and Temporal ports used the defaults in `compose.yaml`. The runner image ID came from the local `runner/image.lock` and is intentionally not committed as part of this task.
 
 ## Commands and results

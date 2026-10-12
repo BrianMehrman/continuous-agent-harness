@@ -36,9 +36,9 @@ curl --fail http://127.0.0.1:8080/actuator/health
 
 Expect HTTP 200 and `status: UP`. This is application/database health; the integration suite independently verifies Temporal connectivity and workflow execution. The namespace setup command is safe to repeat and creates `harness` with seven-day retention. It is a separate setup job so Compose readiness waits only for persistent services. PostgreSQL readiness uses TCP to avoid accepting its temporary initialization server.
 
-`./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs real PostgreSQL, Temporal, workspace, and runner recovery/isolation integration tests. Build the runner image first and export `HARNESS_RUNNER_IMAGE`; runner integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
+`./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs main-feature checks against PostgreSQL, Temporal, and an isolated Docker runner. Build the runner image first and export `HARNESS_RUNNER_IMAGE`; runner and evaluator integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
 
-`./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*InfrastructureIT'`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
+`./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*RunnerIT'`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
 
 The Groovy DSL build uses Java 21 toolchains, native BOM constraints, and a committed `gradle.lockfile`. To intentionally update dependencies, review the version changes, run `./gradlew dependencies --write-locks`, then verify the full build. Do not refresh locks as part of ordinary builds. For local API development, use `./gradlew bootRun`.
 
@@ -132,7 +132,7 @@ docker compose down
 
 The named `postgres-data` volume preserves application data and Temporal history across service recreation. Avoid `down -v` unless intentionally discarding all local data. Initialization scripts and initial passwords apply only to an empty volume; changing environment passwords does not rotate existing database credentials. Application shutdown closes Temporal client resources and the worker factory.
 
-The scripted coding workflow and component recovery checks do not establish full crash or deployment continuity. Those acceptance checks remain Task 9 work; a live Ollama benchmark run remains Task 10 work.
+Task 9 recorded process recovery and pinned deployment evidence before the suite was reduced. See the [historical evidence](evidence/task9-recovery.md) for its exact checks and limits. A live Ollama benchmark run remains Task 10 work.
 
 ## Tested dependency baseline
 
@@ -233,13 +233,13 @@ The launcher runs fixed offline Gradle `jar`/`test` commands, drains stdout/stde
 
 Cancellation/deadline receipts require confirmation that the owned execution is stopped. Docker outages defer reconciliation instead of pretending termination succeeded. A completed build retains its result if the supervisor returns after its deadline. Missing container evidence permits one fresh attempt and marks the final receipt uncertain; a second loss is terminal UNCERTAIN. Compilation/test failures do not consume an infrastructure retry. Containers are removed only after durable receipt commit. Retention of database blobs/test rows is not yet automated.
 
-Run the recovery suite against development/test services:
+Run the retained runner feature checks against development/test services:
 
 ```sh
-python3 scripts/runner_fault_test.py --all-boundaries
+./gradlew integrationTest --tests 'com.brianmehrman.harness.runner.RunnerIT'
 ```
 
-It starts actual runner JVMs, kills them at five boundaries, restarts them, checks durable receipts and Docker creation events, and exercises cancellation, downtime deadlines, evidence loss, competing supervisors, compilation failure, network/filesystem isolation, cgroup limits and stdout truncation. Fault injection is implemented only in test sources under the `recovery-test` profile; it is absent from the packaged application. Logs/markers stay under ignored `target/runner-tests/`. Normal `integrationTest` includes these tests and therefore requires the runner image.
+These tests run a candidate in Docker and check compilation failure, network/filesystem isolation, resource limits, and bounded logs. Normal `integrationTest` includes them and therefore requires the runner image. The former process-death suite and its script were removed in the test-scope cleanup; their prior results remain in the dated evidence below.
 
 Task 3 also supplies the starter's previously missing POM checksums. Fresh image resolution fetched POM metadata that the warm local Gradle cache had not needed; checksums were verified against Maven Central without disabling verification. Build behavior and dependency versions in the starter are unchanged.
 
