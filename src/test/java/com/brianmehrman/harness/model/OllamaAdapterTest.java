@@ -24,7 +24,6 @@ class OllamaAdapterTest {
     private final ConcurrentLinkedQueue<String> responses = new ConcurrentLinkedQueue<>();
     private volatile String requestBody;
     private volatile int responseCode = 200;
-    private volatile long responseDelayMillis;
     private final Map<String, byte[]> saved = new ConcurrentHashMap<>();
     private final BlobStore blobs = new BlobStore() {
         @Override public String put(String mediaType, byte[] bytes) {
@@ -47,10 +46,6 @@ class OllamaAdapterTest {
         server.createContext("/api/chat", exchange -> {
             chatRequests.incrementAndGet();
             requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            if (responseDelayMillis > 0) {
-                try { Thread.sleep(responseDelayMillis); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }
             String next = responses.poll();
             byte[] body = (next == null ? "{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call-1\",\"function\":{\"name\":\"write_file\",\"arguments\":{\"path\":\"README.md\",\"content\":\"hi\"}}}]},\"done\":true}" : next).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -137,23 +132,7 @@ class OllamaAdapterTest {
         assertEquals(2, chatRequests.get());
     }
 
-    @Test void rejectsUnmatchedToolResultBeforeContactingModel() {
-        var invalid = requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"tool\",\"id\":\"unknown\",\"name\":\"read_file\",\"content\":\"oops\"}]}");
-        assertThrows(IllegalArgumentException.class, () -> new OllamaModelAdapter(blobs, profile()).call(invalid));
-        assertEquals(0, chatRequests.get());
-    }
-
-    @Test void elapsedHttpRequestReportsModelDeadlineWithoutRetry() {
-        responseDelayMillis = 1500;
-        var original = requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}");
-        var shortCall = new ModelCall(original.runId(), original.invocationId(), original.attempt(),
-                original.profileRevision(), original.conversationBlobId(), System.currentTimeMillis() + 400);
-        var error = assertThrows(IllegalStateException.class, () -> new OllamaModelAdapter(blobs, profile()).call(shortCall));
-        assertEquals("MODEL_DEADLINE_EXCEEDED", error.getMessage());
-        assertEquals(1, chatRequests.get());
-    }
-
-    @Test void malformedResponseIsReportedAndNotRetried() {
+@Test void malformedResponseIsReportedAndNotRetried() {
         serverReplyJson("{malformed");
         var call = requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}");
         var error = assertThrows(IllegalStateException.class, () -> new OllamaModelAdapter(blobs, profile()).call(call));
@@ -161,12 +140,4 @@ class OllamaAdapterTest {
         assertEquals(1, chatRequests.get());
     }
 
-    @Test void explicitZeroUsageIsDifferentFromAbsentUsage() {
-        serverReplyJson("{\"model\":\"model-1\",\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":0,\"eval_count\":0}");
-        var call = requestWithConversation("{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}");
-        var reply = new OllamaModelAdapter(blobs, profile()).call(call);
-        assertEquals(0L, reply.inputTokens());
-        assertEquals(0L, reply.outputTokens());
-        assertEquals("stop", reply.finishReason());
-    }
 }

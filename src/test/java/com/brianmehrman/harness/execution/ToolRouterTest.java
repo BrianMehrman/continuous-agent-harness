@@ -115,20 +115,7 @@ class ToolRouterTest {
         assertNull(workspace.lastWrite);
     }
 
-    @Test void evaluatorInfrastructureFailureWithoutArtifactStaysVisible() {
-        Evaluator failed = (runId, invocationId, snapshot, seed, deadline) ->
-                new Evaluation(false, snapshot.sha256(), null, "v1", seed,
-                        java.util.List.of(), 0, Evaluation.Outcome.INFRASTRUCTURE_FAILED);
-        var router = new ToolRouter(new MemoryWorkspace(), new NoRunner(), failed, new MemoryBlobs());
-        ToolOutcome outcome = router.route(new ToolInvocation("run-1", "submit-1", START,
-                new ToolRequest("provider-1", "submit", "{\"summary\":\"ready\"}"),
-                System.currentTimeMillis() + 10_000));
-
-        assertTrue(outcome.responseJson().contains("INFRASTRUCTURE_FAILED"));
-        assertFalse(outcome.passed());
-    }
-
-    private static final class MemoryWorkspace implements WorkspaceStore {
+private static final class MemoryWorkspace implements WorkspaceStore {
         private WriteRequest lastWrite;
         private SnapshotRef lastReadSnapshot;
         @Override public SnapshotRef seed(String runId, String benchmarkVersion) { throw new AssertionError(); }

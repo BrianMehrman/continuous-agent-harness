@@ -1,6 +1,6 @@
 # Task 9 review and test-scope reset
 
-Written 2026-10-12 by Claude Code after a code and documentation review requested by the owner. It records where the project stands, what the owner has directed, and the proposed test reduction. Read it before continuing Task 9 or starting Task 10. It does not replace [STATUS.md](../STATUS.md); update that file once the owner confirms the direction below.
+Written 2026-10-12 by Claude Code after a code and documentation review requested by the owner. This is a historical review of Task 9 and the proposed test reduction at that time. The owner later approved the main-feature cleanup; see [STATUS.md](../STATUS.md) for the current handoff and [the cleanup plan](../superpowers/plans/2026-10-12-main-feature-test-cleanup.md) for the selected scope.
 
 ## Owner direction
 
