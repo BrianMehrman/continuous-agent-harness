@@ -53,14 +53,14 @@
 
 ## Task 5: Verify and deliver
 
-- [ ] Run `./gradlew test --offline` and `./gradlew build --offline` with only the local services needed by retained integration tests; record command, date, commit, case count, and elapsed time. A final post-commit build is pending.
-- [ ] Inspect the full diff and staged files for production changes, broken references, and sensitive material.
-- [ ] Commit, push the branch, and open a PR. Leave merging to the owner.
+- [x] Run the unit suite and an uncached full build with the local services needed by retained integration tests; record command, date, commit, case count, and elapsed time.
+- [x] Inspect the full diff and staged files for production changes, broken references, and sensitive material.
+- [x] Commit, push the branch, and open [PR #19](https://github.com/BrianMehrman/continuous-agent-harness/pull/19). Leave merging to the owner.
 
 ## Execution evidence
 
 - Baseline on 2026-10-12 before cleanup: `./gradlew test --offline --rerun-tasks` found 86 unit cases and took 18.7 seconds on the then-current main tree (`ce92372`).
 - Reduced unit suite: 55 cases across 10 classes.
 - Intermediate reduced working-tree build: `./gradlew build --offline` took 8m 8s; five evaluator cases consumed 7m 18s.
-- Final reduced working-tree measurement on 2026-10-12: `./gradlew build --offline` with the pinned local `HARNESS_RUNNER_IMAGE` took 2m 39s: 55 unit cases and 13 integration cases (one opt-in live probe skipped). The evaluator's positive and negative cases consumed 118 seconds. Post-commit verification will establish the commit-specific pass claim.
+- Final post-commit verification on 2026-10-12 at `90927c6`: `./gradlew build --offline --rerun-tasks` with the pinned local `HARNESS_RUNNER_IMAGE` passed in 2m 37s: 55 unit cases and 13 integration cases, with one opt-in live probe skipped.
 - The main-feature scope retains safe editing, Docker isolation, trusted evaluator verdicts, model adapter, coding loop, and API/CLI checks. No production source, migration, dependency lock, benchmark starter, or private fixture changed.
