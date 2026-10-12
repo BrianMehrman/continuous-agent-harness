@@ -13,7 +13,7 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-Tasks 1–7 delivered the Java 21 / Spring Boot foundation, immutable workspaces, isolated runner, independent evaluator, local Ollama adapter, durable run commands, and a scripted Temporal coding loop. This revision adds the loopback operator API and CLI for submitting and observing runs. Crash/deployment proof and a live Ollama task-tracker benchmark remain future work. See the [current handoff](docs/STATUS.md) for merged evidence and the next task.
+The first milestone has a local Ollama model implement a Java task-tracker CLI through this harness, with a host-owned evaluator deciding success. See the [current handoff](docs/STATUS.md) for what is merged, what is in progress, and the next task.
 
 ## Quick start
 

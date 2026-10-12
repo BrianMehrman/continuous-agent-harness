@@ -82,7 +82,7 @@ All later commands run in the worktree.
 **Files:**
 - Modify: `CODEX.md`, `README.md`, `docs/sprints/01-observable-loop.md`, `docs/plans/2026-09-20-local-task-tracker-implementation.md` (the `**Status:**` line)
 
-- [ ] **Step 1: Confirm the stale phrases exist**
+- [x] **Step 1: Confirm the stale phrases exist**
 
 ```sh
 grep -n "Task 5 is next\|Task 5 next\|Tasks 1–4 are merged\|This revision adds" CODEX.md README.md docs/sprints/01-observable-loop.md docs/plans/2026-09-20-local-task-tracker-implementation.md
@@ -90,7 +90,7 @@ grep -n "Task 5 is next\|Task 5 next\|Tasks 1–4 are merged\|This revision adds
 
 Expected: four matches, one in each file.
 
-- [ ] **Step 2: Replace `CODEX.md` with a pointer**
+- [x] **Step 2: Replace `CODEX.md` with a pointer**
 
 Full new content of `CODEX.md`:
 
@@ -100,7 +100,7 @@ Full new content of `CODEX.md`:
 Repository instructions live in [AGENTS.md](AGENTS.md), which Codex reads automatically. Current status and the next task are in [docs/STATUS.md](docs/STATUS.md).
 ```
 
-- [ ] **Step 3: Replace the README "Project status" paragraph**
+- [x] **Step 3: Replace the README "Project status" paragraph**
 
 In `README.md`, replace the paragraph under `## Project status` (the one beginning "Tasks 1–7 delivered") with:
 
@@ -110,7 +110,7 @@ The first milestone has a local Ollama model implement a Java task-tracker CLI t
 
 Leave the rest of `README.md` unchanged.
 
-- [ ] **Step 4: Replace the sprint status line**
+- [x] **Step 4: Replace the sprint status line**
 
 In `docs/sprints/01-observable-loop.md`, replace:
 
@@ -124,7 +124,7 @@ with:
 Status: In progress (see [current handoff](../STATUS.md))
 ```
 
-- [ ] **Step 5: Remove task progress from the implementation plan's status line**
+- [x] **Step 5: Remove task progress from the implementation plan's status line**
 
 In `docs/plans/2026-09-20-local-task-tracker-implementation.md`, replace the line beginning `**Status:** Tasks 1–4 foundation` with:
 
@@ -132,7 +132,7 @@ In `docs/plans/2026-09-20-local-task-tracker-implementation.md`, replace the lin
 **Status:** See the [current handoff](../STATUS.md) for task progress. Gradle supersedes the original Maven selection; see [migration plan](2026-09-26-gradle-migration.md) and [development evidence](../development.md). Benchmark and local-first scope are accepted. Spring AI and Temporal remain proposed supporting choices in ADR 0007. Acceptance of this implementation plan would establish those implementation choices; do not relabel the ADR before that review.
 ```
 
-- [ ] **Step 6: Check**
+- [x] **Step 6: Check**
 
 ```sh
 grep -n "Task 5 is next\|Task 5 next\|Tasks 1–4 are merged\|This revision adds" CODEX.md README.md docs/sprints/01-observable-loop.md docs/plans/2026-09-20-local-task-tracker-implementation.md
@@ -141,7 +141,7 @@ grep -c "Gradle supersedes the original Maven selection\|do not relabel the ADR 
 
 Expected: the first command prints nothing. The second prints `1` (both phrases are on the one status line).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add CODEX.md README.md docs/sprints/01-observable-loop.md docs/plans/2026-09-20-local-task-tracker-implementation.md
