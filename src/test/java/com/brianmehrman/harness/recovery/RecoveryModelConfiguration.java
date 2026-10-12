@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Profile;
 
 /** Blocks the first model invocation at a durable Activity boundary; later calls are deterministic. */
 @Configuration(proxyBeanMethods = false)
-@Profile("recovery-test")
+@Profile("worker & recovery-test")
 class RecoveryModelConfiguration {
     @Bean
     @Primary

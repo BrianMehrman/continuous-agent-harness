@@ -105,6 +105,7 @@ class RunnerRecoveryIT {
    """);
   runner.ensureStarted(r);String id=r.invocationId();launch("",id,Path.of("target/runner-tests",id+".marker"));
   var receipt=result(id);assertThat(receipt.status()).isEqualTo("SUCCEEDED");assertThat(receipt.truncated()).isTrue();
+  assertThat(Files.readString(Path.of("target/runner-tests",id+"-0.log"))).doesNotContain("task9-sentinel-must-not-reach-candidate");
   assertThat(jdbc.queryForObject("select size_bytes from artifact_blob where sha256=?",Integer.class,receipt.logBlobId())).isEqualTo(262144);
   assertThat(row(id).get("reports_blob_id")).isNotNull();await(() -> Boolean.TRUE.equals(row(id).get("cleaned")));
  }

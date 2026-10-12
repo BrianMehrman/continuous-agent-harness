@@ -36,7 +36,8 @@ def main() -> int:
     if args.all:
         gradle("com.brianmehrman.harness.recovery.RecoveryIT",
                "com.brianmehrman.harness.recovery.DeploymentIT",
-               "com.brianmehrman.harness.recovery.CodingRunRecoveryIT")
+               "com.brianmehrman.harness.recovery.CodingRunRecoveryIT",
+               "com.brianmehrman.harness.recovery.SecretRedactionIT")
     else:
         gradle("com.brianmehrman.harness.recovery.RecoveryIT",
                "com.brianmehrman.harness.recovery.CodingRunRecoveryIT")

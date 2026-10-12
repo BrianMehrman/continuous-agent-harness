@@ -37,6 +37,7 @@ class CodingRunRecoveryIT {
     private static final String QUEUE = "coding-recovery-" + UUID.randomUUID();
     private static final String DEPLOYMENT = "coding-harness";
     private static final String NAMESPACE = "harness";
+    private static final String SENTINEL = "task9-sentinel-credential-must-not-leak";
     private static final String TARGET = System.getenv().getOrDefault("HARNESS_TEMPORAL_TARGET", "127.0.0.1:7233");
     private static final String COMPOSE_PROJECT = System.getenv().getOrDefault(
             "HARNESS_COMPOSE_PROJECT", "continuous-agent-harness");
@@ -60,7 +61,7 @@ class CodingRunRecoveryIT {
         boolean changedRouting = false;
         String profile = "task9-recovery-profile-" + UUID.randomUUID();
         profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
-                "a".repeat(64), 8192, 1024, 0, true, null));
+                "a".repeat(64), 8192, 1024, 0, true, SENTINEL));
 
         String invocationMarker = "task9-model-call-entered-" + UUID.randomUUID();
         Path marker = Path.of("build", invocationMarker);
@@ -108,6 +109,11 @@ class CodingRunRecoveryIT {
             assertThat(attemptStatus(runId, runId + ":turn-2", 1)).isEqualTo("RECORDED");
             assertThat(jdbc.queryForObject("select count(*) from model_attempt where run_id=?",
                     Integer.class, runId)).isEqualTo(3);
+            stop(restartedWorker);
+            assertThat(Files.readString(logs.resolve("worker-first.log"))).doesNotContain(SENTINEL);
+            assertThat(Files.readString(logs.resolve("worker-restarted.log"))).doesNotContain(SENTINEL);
+            assertThat(new String(client.fetchHistory(runId).getHistory().toByteArray(),
+                    java.nio.charset.StandardCharsets.UTF_8)).doesNotContain(SENTINEL);
         } finally {
             if (restartedWorker != null && restartedWorker.isAlive()) stop(restartedWorker);
             if (firstWorker != null && firstWorker.isAlive()) stop(firstWorker);
@@ -253,8 +259,10 @@ class CodingRunRecoveryIT {
                 "--harness.temporal.task-queue=" + QUEUE,
                 "--harness.temporal.build-id=" + build,
                 "--task9.recovery.marker=" + marker.toAbsolutePath()));
-        return new ProcessBuilder(command).directory(Path.of(".").toAbsolutePath().toFile())
-                .redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        var builder = new ProcessBuilder(command).directory(Path.of(".").toAbsolutePath().toFile())
+                .redirectErrorStream(true).redirectOutput(output.toFile());
+        builder.environment().put("HARNESS_SENTINEL_CREDENTIAL", SENTINEL);
+        return builder.start();
     }
 
     private void awaitProcessAlive(Process process) throws Exception {
