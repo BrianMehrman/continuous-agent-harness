@@ -69,12 +69,18 @@ Inspect `docker compose logs temporal-schema` (or `docker compose -p harness-try
 Choose exactly one role per process. Startup rejects conflicting roles, an explicit profile selection with no role, and a missing or blank database password before database or Temporal beans are created. Additional non-role profiles may accompany one role:
 
 ```sh
+# Terminal 1
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=api
+
+# Terminal 2
+export HARNESS_WORKER_BUILD_ID="sha256:$(shasum -a 256 build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar | awk '{print $1}')"
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=worker
+
+# Terminal 3
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
 ```
 
-`api` is the default and exposes loopback HTTP with a Temporal client. `worker` registers the coding workflow and Activities on the `coding-v1` task queue and starts polling Temporal. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
+`api` is the default and exposes loopback HTTP with a Temporal client. `worker` requires `HARNESS_WORKER_BUILD_ID` in the form `sha256:` plus the packaged JAR's 64-character lowercase SHA-256 digest. It registers the pinned coding workflow on the `coding-v1` task queue under the `coding-harness` deployment. Keep the old worker version running until its pinned runs finish; see [operations](operations.md) for selecting, rolling back, and draining versions. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
 
 Application startup does not select or download an Ollama model. The opt-in local profile probe can make a model request when `HARNESS_OLLAMA_MODEL` names an installed tag; see [the local model boundary](#explicit-local-model-boundary-task-5).
 
@@ -87,6 +93,8 @@ Application startup does not select or download an Ollama model. The opt-in loca
 | `HARNESS_SECRETS_DIR` | `./.secrets/app/` (directory with trailing slash) |
 | `HARNESS_TEMPORAL_TARGET` | `127.0.0.1:7233` |
 | `HARNESS_TEMPORAL_NAMESPACE` | `harness` |
+| `HARNESS_TEMPORAL_TASK_QUEUE` | `coding-v1` |
+| `HARNESS_WORKER_BUILD_ID` | Required by the worker; `sha256:<64 lowercase hex digits>` |
 | `HARNESS_HTTP_PORT` | `8080` |
 
 Compose accepts `HARNESS_DB_PORT` (55432), `HARNESS_TEMPORAL_PORT` (7233), and `HARNESS_SECRETS_ROOT` (`./.secrets`). Changing published ports also requires updating the application's database URL and Temporal target. Export variables for Java: Compose's `.env` file is not automatically loaded by the application. A custom Temporal namespace must be created separately; the setup script creates `harness`.

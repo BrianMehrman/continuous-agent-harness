@@ -3,6 +3,7 @@ package com.brianmehrman.harness.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.CodingWorkflowImpl;
+import com.brianmehrman.harness.execution.UnversionedCodingWorkflow;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.RunActivities;
 import com.brianmehrman.harness.execution.RunSpec;
@@ -56,7 +57,7 @@ class ApiWorkflowIT {
     @Test void acceptedHttpStartIsDeliveredToScriptedTemporalWorkflow() throws Exception {
         var factory = WorkerFactory.newInstance(client);
         var worker = factory.newWorker(QUEUE);
-        worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+        worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
         worker.registerActivitiesImplementations(new ScriptedActivities(blobs, projections));
         factory.start();
         try {

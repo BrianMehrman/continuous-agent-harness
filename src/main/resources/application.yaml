@@ -32,6 +32,8 @@ harness:
   temporal:
     target: ${HARNESS_TEMPORAL_TARGET:127.0.0.1:7233}
     namespace: ${HARNESS_TEMPORAL_NAMESPACE:harness}
+    task-queue: ${HARNESS_TEMPORAL_TASK_QUEUE:coding-v1}
+    build-id: ${HARNESS_WORKER_BUILD_ID:}
 ---
 spring:
   config:

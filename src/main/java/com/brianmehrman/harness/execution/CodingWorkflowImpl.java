@@ -11,6 +11,8 @@ import io.temporal.failure.CanceledFailure;
 import io.temporal.workflow.Async;
 import io.temporal.workflow.CancellationScope;
 import io.temporal.workflow.Workflow;
+import io.temporal.workflow.WorkflowVersioningBehavior;
+import io.temporal.common.VersioningBehavior;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,6 +36,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
     private CancellationScope deadlineScope;
     private String activeRunnerInvocation;
 
+    @WorkflowVersioningBehavior(VersioningBehavior.PINNED)
     @Override public RunView run(RunSpec input) {
         spec = input;
         snapshot = input.seedSnapshotSha256();

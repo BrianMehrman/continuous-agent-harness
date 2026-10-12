@@ -14,7 +14,8 @@ class RoleConfigurationTest {
             .withUserConfiguration(HarnessApplication.class)
             .withPropertyValues("spring.flyway.enabled=false",
                     "spring.datasource.password=test-only",
-                    "spring.datasource.url=jdbc:postgresql://127.0.0.1:55432/harness");
+                    "spring.datasource.url=jdbc:postgresql://127.0.0.1:55432/harness",
+                    "harness.temporal.build-id=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"api,worker", "api,runner", "worker,runner", "api,worker,runner", "unrelated"})
@@ -96,4 +97,17 @@ class RoleConfigurationTest {
         assertThat(stubs[0].isShutdown()).isTrue();
         assertThat(factories[0].isShutdown()).isTrue();
     }
+
+    @Test
+    void workerRejectsMissingOrMutableBuildIdentity() {
+        for (String invalid : new String[] {"", "latest", "sha256:" + "G".repeat(64)}) {
+            contexts.withPropertyValues("spring.profiles.active=worker",
+                    "harness.temporal.build-id=" + invalid).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                        "Worker build ID must be sha256:<64 lowercase hex digits>");
+            });
+        }
+    }
+
 }

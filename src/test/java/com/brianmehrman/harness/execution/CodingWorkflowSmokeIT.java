@@ -37,7 +37,7 @@ class CodingWorkflowSmokeIT {
         var fixture = new FixtureActivities();
         try {
             var worker = factory.newWorker(queue);
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             factory.start();
             String runId = "run-" + UUID.randomUUID().toString().replace("-", "") + "a".repeat(32);
