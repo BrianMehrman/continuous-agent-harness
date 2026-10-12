@@ -74,8 +74,8 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 long modelDeadline = Math.min(deadline,
                         Workflow.currentTimeMillis() + input.limits().modelAttemptMillis());
                 try {
-                    // Redeliver an interrupted Activity once so its durable attempt receipt can resolve
-                    // whether the model call completed before the worker stopped.
+                    // A worker restart may redeliver this Activity to reconcile its durable receipt.
+                    // The Activity checks persisted cancellation and the deadline before another call.
                     reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
                             input.profileRevision(), conversation, modelDeadline));
                     break;

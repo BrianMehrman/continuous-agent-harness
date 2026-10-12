@@ -1,6 +1,8 @@
 # Project handoff
 
-Checked 2026-10-11 against `origin/main` at `d5d77cb` (merged PR #15). Verify GitHub and the checkout again before acting; this note is a handoff, not a live status feed.
+Checked 2026-10-12 against `origin/main` at `1fa0303` (merged PR #17). Verify GitHub and the checkout again before acting; this note is a handoff, not a live status feed.
+
+**Read first:** [Task 9 review and test-scope reset](reviews/2026-10-12-task9-review-and-test-scope.md) (2026-10-12). The owner chose to finish Task 9, retain existing tests for now, add no unnecessary tests, and clean up the suite afterward.
 
 ## Current milestone
 
@@ -21,8 +23,8 @@ Build an API/CLI-operated Spring Boot harness that lets a local Ollama model imp
 
 The credential hardening follow-up was merged in [PR #5](https://github.com/BrianMehrman/continuous-agent-harness/pull/5). Task 4's full build passed 92 Java tests on 2026-10-03; see [development evidence](development.md). This does not establish a live Ollama benchmark pass.
 
-## Next: Task 9
+## In review: Task 9
 
-Prove process-level recovery, deadline enforcement, Temporal persistence, and pinned worker deployment continuity. See [Task 9 of the implementation plan](plans/2026-09-20-local-task-tracker-implementation.md#task-9-prove-crashes-deadlines-and-deployment-continuity). Current branch work adds pinned worker configuration, process restart and forward/rollback checks, and [initial operations procedures](operations.md). Coding-run tests kill the worker during a model call, stop Temporal across the original deadline, and deliver cancellation while the pinned worker is absent. They verify receipt reconciliation, expiration without another model call, and no model retry after cancellation is applied. Synthetic credential scans now cover loopback API responses, API/worker/runner logs, raw Temporal history, and the candidate environment. Recovery and deployment tests pass against Temporal 1.32. Telemetry/exporter behavior, remaining crash boundaries, and operator helpers are not yet covered. No live Ollama benchmark pass has been established.
+Open PR #16 implements pinned worker deployment continuity, process recovery checks, attempt telemetry, operator procedures, and helper commands. On 2026-10-12, `./gradlew test --offline`, `python3 scripts/recovery_test.py --all` (7m 13s), and `python3 scripts/deployment_test.py --forward-and-rollback` (43s) passed against Temporal 1.32. The recovery suite includes worker death during a model call, Temporal outage past the run deadline, queued cancellation while a pinned worker is absent, child-JVM durable boundaries, credential scans, and a scripted disconnected-exporter case. See [Task 9 evidence](evidence/task9-recovery.md) for limits. A cancellation update can still block the single dispatcher while its pinned worker is absent; that cross-run liveness case is not established by these tests. No live Ollama coding benchmark pass has been established. Task 10 follows only after PR #16 merges.
 
 The unit-test CI workflow was merged in [PR #11](https://github.com/BrianMehrman/continuous-agent-harness/pull/11) with `ubuntu-24.04` pinned. Task 5's opt-in live probe used the installed `qwen3.8:latest` tag and verified a read-only tool round trip and one adapter call; no model was pulled or full benchmark run claimed. The coding benchmark remains Task 10 work. See [development evidence](development.md#explicit-local-model-boundary-task-5). Follow [AGENTS.md](../AGENTS.md) for Git, security, testing, PR, and resource cleanup rules.

@@ -303,8 +303,11 @@ class CodingRunRecoveryIT {
 
     private void restoreCurrentBuild(String build) throws Exception {
         if (build == null) temporalCli("worker", "deployment", "set-current-version",
-                "--deployment-name", DEPLOYMENT, "--unversioned", "--allow-no-pollers", "--yes");
-        else setCurrentBuild(build);
+                "--deployment-name", DEPLOYMENT, "--unversioned", "--allow-no-pollers",
+                "--ignore-missing-task-queues", "--yes");
+        else temporalCli("worker", "deployment", "set-current-version", "--deployment-name",
+                DEPLOYMENT, "--build-id", build, "--allow-no-pollers",
+                "--ignore-missing-task-queues", "--yes");
     }
 
     private tools.jackson.databind.JsonNode deploymentInfo() throws Exception {

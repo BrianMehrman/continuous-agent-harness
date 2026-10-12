@@ -43,7 +43,7 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
             WorkflowClient.start(workflow::run, spec);
             return new StartReceipt(StartOutcome.STARTED, spec.inputSha256());
         } catch (WorkflowExecutionAlreadyStarted alreadyStarted) {
-            var existing = describe(spec.runId());
+            var existing = identity(spec.runId());
             if (existing == null || existing.inputSha256() == null)
                 throw new IllegalStateException("Existing workflow identity unavailable", alreadyStarted);
             return new StartReceipt(StartOutcome.ALREADY_EXISTS, existing.inputSha256());
@@ -79,6 +79,15 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
                     ? new WorkflowDescription(runId, input, 0, description.getStatus().name(), null, null)
                     : new WorkflowDescription(runId, input, view.version(), view.status(),
                             view.snapshotSha256(), view.terminalResultBlobId());
+        } catch (WorkflowNotFoundException missing) {
+            return null;
+        }
+    }
+
+    @Override public WorkflowIdentity identity(String runId) {
+        try {
+            var description = client.newUntypedWorkflowStub(runId).describe();
+            return new WorkflowIdentity(runId, (String) description.getMemo("inputSha256", String.class));
         } catch (WorkflowNotFoundException missing) {
             return null;
         }

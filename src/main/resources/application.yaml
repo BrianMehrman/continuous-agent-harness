@@ -18,6 +18,20 @@ server:
   address: 127.0.0.1
   port: ${HARNESS_HTTP_PORT:8080}
 management:
+  tracing:
+    export:
+      otlp:
+        enabled: ${HARNESS_OTLP_TRACES_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${HARNESS_OTLP_METRICS_ENABLED:false}
+        url: ${HARNESS_OTLP_METRICS_URL:http://127.0.0.1:4318/v1/metrics}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${HARNESS_OTLP_TRACES_ENDPOINT:http://127.0.0.1:4318/v1/traces}
   endpoints:
     web:
       exposure:

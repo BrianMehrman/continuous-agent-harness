@@ -56,7 +56,7 @@ public class CommandDispatcher {
                     backoffSeconds(claim.attempt()),
                     error instanceof UnknownStartOutcomeException ? "START_OUTCOME_UNKNOWN" : "DISPATCH_FAILED",
                     claim.commandId(), claim.owner()));
-            throw error;
+            throw new ClaimedDeliveryException(error);
         }
     }
 
@@ -85,7 +85,7 @@ public class CommandDispatcher {
                 String.class, claim.runId());
         RunSpec spec = json.readValue(specJson, RunSpec.class);
         if (claim.attempt() > 1) {
-            var existing = gateway.describe(spec.runId());
+            var existing = gateway.identity(spec.runId());
             if (existing == null)
                 throw new UnknownStartOutcomeException();
             if (!spec.inputSha256().equals(existing.inputSha256()))
@@ -95,7 +95,7 @@ public class CommandDispatcher {
         if (receipt == null || !spec.inputSha256().equals(receipt.inputSha256()))
             throw new IllegalStateException("Workflow start identity mismatch");
         if (receipt.outcome() == WorkflowGateway.StartOutcome.ALREADY_EXISTS) {
-            var described = gateway.describe(spec.runId());
+            var described = gateway.identity(spec.runId());
             if (described == null || !spec.inputSha256().equals(described.inputSha256()))
                 throw new IllegalStateException("Existing workflow input identity mismatch");
         }
@@ -120,5 +120,10 @@ public class CommandDispatcher {
 
     private static final class UnknownStartOutcomeException extends IllegalStateException {
         private UnknownStartOutcomeException() { super("Prior workflow start has an unknown outcome"); }
+    }
+
+    /** A claimed command was durably backed off, so the pump may try another ready row. */
+    public static final class ClaimedDeliveryException extends IllegalStateException {
+        public ClaimedDeliveryException(RuntimeException cause) { super(cause); }
     }
 }

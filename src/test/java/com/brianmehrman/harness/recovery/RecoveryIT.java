@@ -59,10 +59,12 @@ class RecoveryIT {
         } finally {
             if (previous == null) {
                 cli(project, "worker", "deployment", "set-current-version", "--deployment-name",
-                        "coding-harness", "--unversioned", "--allow-no-pollers", "--yes");
+                        "coding-harness", "--unversioned", "--allow-no-pollers",
+                        "--ignore-missing-task-queues", "--yes");
             } else {
                 cli(project, "worker", "deployment", "set-current-version", "--deployment-name",
-                        "coding-harness", "--build-id", previous, "--yes");
+                        "coding-harness", "--build-id", previous, "--allow-no-pollers",
+                        "--ignore-missing-task-queues", "--yes");
             }
             if (worker != null && worker.isAlive()) {
                 worker.destroy();

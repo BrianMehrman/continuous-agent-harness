@@ -107,7 +107,7 @@ class DeploymentIT {
                     .isEqualTo(v1);
         } finally {
             if (originalCurrent == null) setUnversionedCurrent();
-            else setCurrentVersion(originalCurrent);
+            else restoreCurrentVersion(originalCurrent);
             for (Process process : processes) stop(process);
         }
     }
@@ -166,7 +166,14 @@ class DeploymentIT {
 
     private void setUnversionedCurrent() throws Exception {
         runTemporalCli(List.of("worker", "deployment", "set-current-version",
-                "--deployment-name", DEPLOYMENT, "--unversioned", "--allow-no-pollers", "--yes"));
+                "--deployment-name", DEPLOYMENT, "--unversioned", "--allow-no-pollers",
+                "--ignore-missing-task-queues", "--yes"));
+    }
+
+    private void restoreCurrentVersion(String buildId) throws Exception {
+        runTemporalCli(List.of("worker", "deployment", "set-current-version",
+                "--deployment-name", DEPLOYMENT, "--build-id", buildId,
+                "--allow-no-pollers", "--ignore-missing-task-queues", "--yes"));
     }
 
     private String runTemporalCli(List<String> temporalArgs) throws Exception {

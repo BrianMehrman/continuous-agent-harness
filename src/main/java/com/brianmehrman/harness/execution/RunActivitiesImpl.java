@@ -37,11 +37,12 @@ public class RunActivitiesImpl implements RunActivities {
     private final RunProjectionRepository projections;
     private final ModelAdapterFactory adapters;
     private final ToolRouter tools;
+    private final RunTelemetry telemetry;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RunActivitiesImpl(BlobStore blobs, ProfileRevisionStore profiles, WorkspaceStore workspaces,
             Runner runner, Evaluator evaluator, ModelAttemptStore attempts, RunAdmissionStore admissions,
-            RunProjectionRepository projections, ModelAdapterFactory adapters) {
+            RunProjectionRepository projections, ModelAdapterFactory adapters, RunTelemetry telemetry) {
         this.blobs = Objects.requireNonNull(blobs);
         this.profiles = Objects.requireNonNull(profiles);
         this.workspaces = Objects.requireNonNull(workspaces);
@@ -51,6 +52,7 @@ public class RunActivitiesImpl implements RunActivities {
         this.projections = Objects.requireNonNull(projections);
         this.adapters = Objects.requireNonNull(adapters);
         this.tools = new ToolRouter(workspaces, runner, Objects.requireNonNull(evaluator), blobs);
+        this.telemetry = Objects.requireNonNull(telemetry);
     }
 
     @Override public boolean acquireAdmission(String runId) { return admissions.acquire(runId); }
@@ -79,11 +81,24 @@ public class RunActivitiesImpl implements RunActivities {
             return json.readValue(blobs.get(lease.responseBlobId()), ModelReply.class);
         if (lease.outcome() == ModelAttemptStore.Outcome.UNKNOWN)
             throw ApplicationFailure.newNonRetryableFailure("Model attempt has an unknown outcome", "MODEL_ATTEMPT_UNKNOWN");
-        try {
+        String status = projections.view(call.runId()).status();
+        if (System.currentTimeMillis() >= call.deadlineEpochMillis() ||
+                "CANCEL_REQUESTED".equals(status) || "STOPPING".equals(status) ||
+                "CANCELLED".equals(status) || "EXPIRED".equals(status) ||
+                "SUCCEEDED".equals(status) || "FAILED".equals(status) ||
+                "LIMIT_EXHAUSTED".equals(status) || "INFRASTRUCTURE_FAILED".equals(status) ||
+                "CONTEXT_OVERFLOW".equals(status)) {
+            attempts.abandon(lease);
+            throw ApplicationFailure.newNonRetryableFailure(
+                    "Model attempt was not dispatched before its run state or deadline changed",
+                    "MODEL_ATTEMPT_UNKNOWN");
+        }
+        try (var attempt = telemetry.modelAttempt(call)) {
             ModelReply reply = adapters.forProfile(profiles.get(call.profileRevision())).call(call);
             String responseBlob = blobs.put("application/vnd.harness.model-reply+json", json.writeValueAsBytes(reply));
             if (!attempts.complete(lease, responseBlob))
                 throw ApplicationFailure.newNonRetryableFailure("Model attempt lost ownership", "MODEL_ATTEMPT_UNKNOWN");
+            attempt.succeeded();
             return reply;
         } catch (RuntimeException failure) {
             attempts.abandon(lease);
@@ -96,7 +111,13 @@ public class RunActivitiesImpl implements RunActivities {
         }
     }
 
-    @Override public ToolOutcome invokeTool(ToolInvocation call) { return tools.route(call); }
+    @Override public ToolOutcome invokeTool(ToolInvocation call) {
+        try (var attempt = telemetry.toolAttempt(call)) {
+            ToolOutcome outcome = tools.route(call);
+            if (outcome.failureCode() == null) attempt.succeeded();
+            return outcome;
+        }
+    }
 
     @Override public String appendConversation(String previousBlobId, ModelReply reply,
             List<ToolOutcome> outcomes) {
@@ -139,6 +160,7 @@ public class RunActivitiesImpl implements RunActivities {
         String blob = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(payload));
         projections.append(new RunEvent(runId, sequence, runId + ":event-" + sequence,
                 "STATE_CHANGED", blob));
+        telemetry.transition(runId, status);
     }
 
     @Override public boolean cancelRunner(String invocationId) {
