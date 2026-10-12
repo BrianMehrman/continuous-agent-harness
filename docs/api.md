@@ -3,12 +3,18 @@
 Task 8 adds a loopback HTTP API and a Python 3 standard-library client. Start the services and build the application as described in [local development](development.md). In separate terminals, run the API, worker, and runner roles:
 
 ```sh
+# Terminal 1
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=api
+
+# Terminal 2
+export HARNESS_WORKER_BUILD_ID="sha256:$(shasum -a 256 build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar | awk '{print $1}')"
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=worker
+
+# Terminal 3
 HARNESS_RUNNER_ENABLED=true HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)" java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
 ```
 
-Run these from the repository root so the application reads `.secrets/app/`. The API binds `127.0.0.1:8080` by default. The API accepts a command durably before the background dispatcher delivers it to Temporal. A `202` response means accepted, not applied. Inspect `deliveryStatus` and `applicationOutcome` in a command response or `commands[]` in run detail to see delivery and cancellation results. `projection.stale` signals a gap between authoritative workflow state and contiguous semantic events.
+Run these from the repository root so the application reads `.secrets/app/`. The worker build ID is the packaged JAR's immutable digest and is required for worker startup. Select it as the current `coding-harness` version with the tested commands in [operations](operations.md) before submitting runs. The API binds `127.0.0.1:8080` by default. The API accepts a command durably before the background dispatcher delivers it to Temporal. A `202` response means accepted, not applied. Inspect `deliveryStatus` and `applicationOutcome` in a command response or `commands[]` in run detail to see delivery and cancellation results. `projection.stale` signals a gap between authoritative workflow state and contiguous semantic events.
 
 ## Operator walkthrough
 

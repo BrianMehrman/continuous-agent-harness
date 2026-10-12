@@ -1,11 +1,15 @@
 package com.brianmehrman.harness.config;
 
 import com.brianmehrman.harness.HarnessApplication;
+import com.brianmehrman.harness.execution.CodingWorkflowImpl;
+import com.brianmehrman.harness.execution.RunSpec;
+import io.temporal.common.VersioningBehavior;
 import io.temporal.api.workflowservice.v1.DescribeNamespaceRequest;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.worker.WorkerFactory;
+import io.temporal.workflow.WorkflowVersioningBehavior;
 import io.temporal.workflow.WorkflowInterface;
 import io.temporal.workflow.WorkflowMethod;
 import org.junit.jupiter.api.Test;
@@ -23,7 +27,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = HarnessApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(classes = HarnessApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = "harness.temporal.build-id=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 @ActiveProfiles("worker")
 class InfrastructureIT {
     @Autowired DataSource dataSource;
@@ -37,6 +42,19 @@ class InfrastructureIT {
     void workerRoleRegistersAndStartsTheCodingTaskQueue() {
         assertThat(codingWorkerFactory.isStarted()).isTrue();
         assertThat(codingWorkerFactory.getWorker("coding-v1")).isNotNull();
+    }
+
+    @Test
+    void workerUsesAnImmutablePinnedDeploymentVersion() throws Exception {
+        var options = codingWorkerFactory.getWorker("coding-v1")
+                .getWorkerOptions().getDeploymentOptions();
+        assertThat(options.isUsingVersioning()).isTrue();
+        assertThat(options.getVersion().getDeploymentName()).isEqualTo("coding-harness");
+        assertThat(options.getVersion().getBuildId())
+                .isEqualTo("sha256:" + "a".repeat(64));
+        assertThat(CodingWorkflowImpl.class.getMethod("run", RunSpec.class)
+                .getAnnotation(WorkflowVersioningBehavior.class).value())
+                .isEqualTo(VersioningBehavior.PINNED);
     }
 
     @Test

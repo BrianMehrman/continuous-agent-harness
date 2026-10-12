@@ -3,6 +3,7 @@ package com.brianmehrman.harness.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.CodingWorkflowImpl;
+import com.brianmehrman.harness.execution.UnversionedCodingWorkflow;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.RunActivities;
 import com.brianmehrman.harness.execution.RunSpec;
@@ -25,7 +26,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -33,6 +36,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -40,10 +44,17 @@ import tools.jackson.databind.json.JsonMapper;
         properties = "harness.api.dispatch-interval-ms=100")
 @ActiveProfiles("api")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ApiWorkflowIT {
     private static final String QUEUE = "api-it-" + UUID.randomUUID();
+    private static final String SCHEMA = "api_it_" + UUID.randomUUID().toString().replace("-", "");
     @DynamicPropertySource static void queue(DynamicPropertyRegistry registry) {
         registry.add("harness.temporal.task-queue", () -> QUEUE);
+        String base = System.getenv().getOrDefault("HARNESS_DB_URL",
+                "jdbc:postgresql://127.0.0.1:55432/harness");
+        registry.add("spring.datasource.url", () -> base + (base.contains("?") ? "&" : "?")
+                + "currentSchema=" + SCHEMA);
+        registry.add("spring.flyway.schemas", () -> SCHEMA);
     }
 
     @LocalServerPort int port;
@@ -51,12 +62,17 @@ class ApiWorkflowIT {
     @Autowired ProfileRevisionStore profiles;
     @Autowired BlobStore blobs;
     @Autowired RunProjectionRepository projections;
+    @Autowired JdbcTemplate jdbc;
     private final JsonMapper json = JsonMapper.builder().build();
+
+    @AfterAll void removeTestSchema() {
+        jdbc.execute("drop schema if exists " + SCHEMA + " cascade");
+    }
 
     @Test void acceptedHttpStartIsDeliveredToScriptedTemporalWorkflow() throws Exception {
         var factory = WorkerFactory.newInstance(client);
         var worker = factory.newWorker(QUEUE);
-        worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+        worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
         worker.registerActivitiesImplementations(new ScriptedActivities(blobs, projections));
         factory.start();
         try {

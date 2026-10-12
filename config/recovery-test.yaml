@@ -1,0 +1,5 @@
+{
+  "terminalTimeoutSeconds": 180,
+  "recoverySuites": ["*RecoveryIT", "*CodingRunRecoveryIT"],
+  "allSuites": ["*DeploymentIT", "*SecretRedactionIT", "*TelemetryOutageIT"]
+}

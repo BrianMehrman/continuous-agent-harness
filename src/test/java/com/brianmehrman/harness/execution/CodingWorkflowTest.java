@@ -27,7 +27,7 @@ class CodingWorkflowTest {
         var fixture = new ScriptedActivities();
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -53,7 +53,7 @@ class CodingWorkflowTest {
         fixture.unknownFirstCall = true;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-retry-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -73,7 +73,7 @@ class CodingWorkflowTest {
         fixture.modelRelease = new CountDownLatch(1);
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-cancel-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -100,7 +100,7 @@ class CodingWorkflowTest {
                 new ModelReply("still done", List.of(), 1L, 1L, "stop")));
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-text-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -119,7 +119,7 @@ class CodingWorkflowTest {
         fixture.contextOverflowFirstCall = true;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-overflow-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -140,7 +140,7 @@ class CodingWorkflowTest {
         fixture.unconfirmedStops = 2;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-runner-cancel-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -165,7 +165,7 @@ class CodingWorkflowTest {
         fixture.modelDelayMillis = 100;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-deadline-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -185,7 +185,7 @@ class CodingWorkflowTest {
         fixture.toolRelease = new CountDownLatch(1);
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-runner-deadline-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -207,7 +207,7 @@ class CodingWorkflowTest {
         fixture.admissionRelease = new CountDownLatch(1);
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-queued-cancel-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -232,7 +232,7 @@ class CodingWorkflowTest {
         fixture.infrastructureFailureOnFirstSubmit = true;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-evaluator-failure-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
@@ -251,7 +251,7 @@ class CodingWorkflowTest {
         fixture.toolActivityFailure = true;
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-tool-failure-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             environment.start();
             var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,

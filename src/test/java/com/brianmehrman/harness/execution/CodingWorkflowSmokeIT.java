@@ -37,7 +37,7 @@ class CodingWorkflowSmokeIT {
         var fixture = new FixtureActivities();
         try {
             var worker = factory.newWorker(queue);
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(fixture);
             factory.start();
             String runId = "run-" + UUID.randomUUID().toString().replace("-", "") + "a".repeat(32);
@@ -62,14 +62,18 @@ class CodingWorkflowSmokeIT {
         }
     }
 
-    private static final class FixtureActivities implements RunActivities {
+    static final class FixtureActivities implements RunActivities {
         private final JsonNode steps;
         private int turn;
         private int nextStep;
         private int submissionCount;
         private boolean released;
+        private final RunTelemetry telemetry;
 
-        private FixtureActivities() throws IOException {
+        FixtureActivities() throws IOException { this(null); }
+
+        FixtureActivities(RunTelemetry telemetry) throws IOException {
+            this.telemetry = telemetry;
             try (var stream = getClass().getResourceAsStream("/execution/fixtures/scripted-task-tracker.json")) {
                 if (stream == null) throw new IOException("Missing scripted task-tracker fixture");
                 steps = JsonMapper.builder().build().readTree(stream.readAllBytes()).path("steps");
@@ -90,6 +94,16 @@ class CodingWorkflowSmokeIT {
         @Override public void releaseAdmission(String runId) { released = true; }
         @Override public String startConversation(RunSpec spec) { return "2".repeat(64); }
         @Override public ModelReply callModel(ModelCall call) {
+            if (telemetry != null) {
+                try (var attempt = telemetry.modelAttempt(call)) {
+                    ModelReply reply = scriptedModelReply();
+                    attempt.succeeded();
+                    return reply;
+                }
+            }
+            return scriptedModelReply();
+        }
+        private ModelReply scriptedModelReply() {
             turn++;
             var requests = new ArrayList<ToolRequest>();
             for (JsonNode step : steps) {
@@ -99,6 +113,16 @@ class CodingWorkflowSmokeIT {
             return new ModelReply("", requests, 10L, 10L, "tool_calls");
         }
         @Override public ToolOutcome invokeTool(ToolInvocation call) {
+            if (telemetry != null) {
+                try (var attempt = telemetry.toolAttempt(call)) {
+                    ToolOutcome result = scriptedToolOutcome(call);
+                    attempt.succeeded();
+                    return result;
+                }
+            }
+            return scriptedToolOutcome(call);
+        }
+        private ToolOutcome scriptedToolOutcome(ToolInvocation call) {
             JsonNode step = steps.get(nextStep++);
             assertEquals(step.path("name").asText(), call.request().name());
             assertEquals(digest(step.path("from").asText()), call.snapshot().sha256());
@@ -112,7 +136,9 @@ class CodingWorkflowSmokeIT {
         @Override public String appendConversation(String previousBlobId, ModelReply reply,
                 List<ToolOutcome> outcomes) { return previousBlobId; }
         @Override public void publish(String runId, long sequence, long version, String status,
-                String snapshotSha256, String terminalResultBlobId) {}
+                String snapshotSha256, String terminalResultBlobId) {
+            if (telemetry != null) telemetry.transition(runId, status);
+        }
         @Override public boolean cancelRunner(String invocationId) { throw new AssertionError(); }
     }
 }

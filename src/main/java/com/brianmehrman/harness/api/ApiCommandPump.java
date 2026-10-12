@@ -30,10 +30,17 @@ public class ApiCommandPump {
     @Scheduled(fixedDelayString = "${harness.api.dispatch-interval-ms:1000}")
     public void drain() {
         if (!enabled) return;
+        int failedClaims = 0;
         for (int count = 0; count < 20; count++) {
             try { if (!dispatcher.dispatchOnce()) return; }
+            catch (CommandDispatcher.ClaimedDeliveryException error) {
+                LOG.log(Level.WARNING, "Claimed run command delivery failed: {0}",
+                        error.getCause().getClass().getSimpleName());
+                if (++failedClaims >= 3) return;
+            }
             catch (RuntimeException error) {
                 LOG.log(Level.WARNING, "Run command delivery attempt failed: {0}", error.getClass().getSimpleName());
+                // Stop this tick: a failure before a row is claimed has no durable backoff.
                 return;
             }
         }

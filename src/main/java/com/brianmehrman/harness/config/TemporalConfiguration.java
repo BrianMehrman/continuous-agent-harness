@@ -7,6 +7,7 @@ import io.temporal.client.WorkflowClientOptions;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
 import io.temporal.worker.WorkerFactory;
+import io.temporal.worker.WorkerOptions;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -41,9 +42,10 @@ public class TemporalConfiguration {
     @Bean
     @Profile("worker")
     ApplicationRunner startCodingWorker(WorkerFactory factory, RunActivitiesImpl activities,
+            WorkerOptions codingWorkerOptions,
             @Value("${harness.temporal.task-queue:coding-v1}") String taskQueue) {
         return args -> {
-            var worker = factory.newWorker(taskQueue);
+            var worker = factory.newWorker(taskQueue, codingWorkerOptions);
             worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
             worker.registerActivitiesImplementations(activities);
             factory.start();

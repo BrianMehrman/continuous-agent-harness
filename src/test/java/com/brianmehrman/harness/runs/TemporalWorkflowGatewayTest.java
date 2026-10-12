@@ -3,6 +3,7 @@ package com.brianmehrman.harness.runs;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.CodingWorkflowImpl;
+import com.brianmehrman.harness.execution.UnversionedCodingWorkflow;
 import com.brianmehrman.harness.execution.CodingWorkflow;
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.RunView;
@@ -22,7 +23,7 @@ class TemporalWorkflowGatewayTest {
     @Test void existingWorkflowKeepsItsOriginalInputIdentity() {
         try (var environment = TestWorkflowEnvironment.newInstance()) {
             var worker = environment.newWorker("coding-gateway-test");
-            worker.registerWorkflowImplementationTypes(CodingWorkflowImpl.class);
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
             worker.registerActivitiesImplementations(new ImmediateActivities());
             environment.start();
             var gateway = new TemporalWorkflowGateway(environment.getWorkflowClient(), "coding-gateway-test");

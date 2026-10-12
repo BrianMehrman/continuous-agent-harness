@@ -27,6 +27,7 @@ class RunnerRecoveryIT {
   var builder=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin/java").toString(),"-cp",System.getProperty("runner.test.classpath"),RunnerRecoveryProcess.class.getName(),"--spring.profiles.active=runner,recovery-test","--harness.runner.enabled=true");
   if(dockerHost!=null) { builder.environment().remove("DOCKER_CONTEXT");builder.environment().put("DOCKER_HOST",dockerHost); }
   builder.environment().put("RUNNER_TEST_BOUNDARY",boundary); builder.environment().put("RUNNER_TEST_ID",id); builder.environment().put("RUNNER_TEST_MARKER",marker.toAbsolutePath().toString());
+  builder.environment().put("HARNESS_SENTINEL_CREDENTIAL","task9-sentinel-must-not-reach-candidate");
   Files.createDirectories(Path.of("target/runner-tests"));
   builder.redirectErrorStream(true).redirectOutput(Path.of("target/runner-tests",id+"-"+processes.size()+".log").toFile());
   Process p=builder.start();processes.add(p);return p;
@@ -93,6 +94,7 @@ class RunnerRecoveryIT {
     assertFalse(Files.exists(Path.of("/var/run/docker.sock")));
     assertFalse(Files.exists(Path.of("/Users/brianmehrman")));
     assertFalse(Files.exists(Path.of("/.secrets")));
+    assertNull(System.getenv("HARNESS_SENTINEL_CREDENTIAL"), "host credentials must not enter candidate environment");
     assertThrows(Exception.class, () -> Files.writeString(Path.of("/work/project/build.gradle"),"attack"));
     assertThrows(Exception.class, () -> Files.writeString(Path.of("/control/ready"),"attack"));
     assertThrows(Exception.class, () -> { try(var s=new Socket()) { s.connect(new InetSocketAddress("1.1.1.1",443),500); } });
@@ -103,6 +105,7 @@ class RunnerRecoveryIT {
    """);
   runner.ensureStarted(r);String id=r.invocationId();launch("",id,Path.of("target/runner-tests",id+".marker"));
   var receipt=result(id);assertThat(receipt.status()).isEqualTo("SUCCEEDED");assertThat(receipt.truncated()).isTrue();
+  assertThat(Files.readString(Path.of("target/runner-tests",id+"-0.log"))).doesNotContain("task9-sentinel-must-not-reach-candidate");
   assertThat(jdbc.queryForObject("select size_bytes from artifact_blob where sha256=?",Integer.class,receipt.logBlobId())).isEqualTo(262144);
   assertThat(row(id).get("reports_blob_id")).isNotNull();await(() -> Boolean.TRUE.equals(row(id).get("cleaned")));
  }

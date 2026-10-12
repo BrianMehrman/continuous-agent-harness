@@ -15,6 +15,8 @@ import com.brianmehrman.harness.runs.RunCommandService;
 import com.brianmehrman.harness.runs.RunProjectionRepository;
 import com.brianmehrman.harness.runs.StartCommand;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -49,8 +51,10 @@ class RunActivitiesImplIT {
         var scripted = new ScriptedModelAdapter(List.of(new ModelReply("inspect", List.of(
                 new ToolRequest("provider-1", "read_file", "{\"path\":\"REQUIREMENTS.md\"}")),
                 12L, 8L, "tool_calls")));
+        var meters = new SimpleMeterRegistry();
         var activities = new RunActivitiesImpl(blobs, profiles, workspaces, runner, evaluator,
-                attempts, admissions, projections, revision -> scripted);
+                attempts, admissions, projections, revision -> scripted,
+                new RunTelemetry(meters, ObservationRegistry.create()));
         String conversation = activities.startConversation(spec);
         var request = new ModelCall(start.runId(), "model-1", 1, profile, conversation,
                 System.currentTimeMillis() + 10_000);
@@ -60,6 +64,7 @@ class RunActivitiesImplIT {
 
         assertEquals(first, replay);
         assertEquals(1, scripted.callCount());
+        assertEquals(1, meters.find("harness.attempts").counter().count());
         assertEquals("read_file", replay.tools().getFirst().name());
         String continued = activities.appendConversation(conversation, replay, List.of(
                 new ToolOutcome("tool-1", "provider-1", "read_file",
@@ -82,7 +87,7 @@ class RunActivitiesImplIT {
         var activities = new RunActivitiesImpl(blobs, profiles, workspaces, runner, evaluator,
                 attempts, admissions, projections, revision -> request -> {
                     throw new IllegalStateException("injected transport failure");
-                });
+                }, new RunTelemetry(new SimpleMeterRegistry(), ObservationRegistry.create()));
         var call = new ModelCall(start.runId(), "model-failure", 1, profile,
                 activities.startConversation(spec), System.currentTimeMillis() + 10_000);
 
@@ -102,7 +107,7 @@ class RunActivitiesImplIT {
         var activities = new RunActivitiesImpl(blobs, profiles, workspaces, runner, evaluator,
                 attempts, admissions, projections, revision -> request -> {
                     throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
-                });
+                }, new RunTelemetry(new SimpleMeterRegistry(), ObservationRegistry.create()));
         var call = new ModelCall(start.runId(), "model-overflow", 1, profile,
                 activities.startConversation(spec), System.currentTimeMillis() + 10_000);
 

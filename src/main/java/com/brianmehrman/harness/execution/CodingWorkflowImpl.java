@@ -11,6 +11,8 @@ import io.temporal.failure.CanceledFailure;
 import io.temporal.workflow.Async;
 import io.temporal.workflow.CancellationScope;
 import io.temporal.workflow.Workflow;
+import io.temporal.workflow.WorkflowVersioningBehavior;
+import io.temporal.common.VersioningBehavior;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,6 +36,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
     private CancellationScope deadlineScope;
     private String activeRunnerInvocation;
 
+    @WorkflowVersioningBehavior(VersioningBehavior.PINNED)
     @Override public RunView run(RunSpec input) {
         spec = input;
         snapshot = input.seedSnapshotSha256();
@@ -64,16 +67,20 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             String invocation = input.runId() + ":turn-" + turn;
             ModelReply reply = null;
             for (int attempt = 1; attempt <= input.limits().perTurnModelAttempts(); attempt++) {
+                if (cancelRequested) return terminal("CANCELLED");
                 if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                 if (++dispatchedModelAttempts > input.limits().modelAttempts())
                     return terminal("LIMIT_EXHAUSTED");
                 long modelDeadline = Math.min(deadline,
                         Workflow.currentTimeMillis() + input.limits().modelAttemptMillis());
                 try {
-                    reply = timedActivities(modelDeadline, 1).callModel(new ModelCall(input.runId(), invocation, attempt,
+                    // A worker restart may redeliver this Activity to reconcile its durable receipt.
+                    // The Activity checks persisted cancellation and the deadline before another call.
+                    reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
                             input.profileRevision(), conversation, modelDeadline));
                     break;
                 } catch (ActivityFailure error) {
+                    if (cancelRequested) return terminal("CANCELLED");
                     if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                     String failureType = modelFailureType(error);
                     if ("MODEL_CONTEXT_OVERFLOW".equals(failureType)) return terminal("CONTEXT_OVERFLOW");
