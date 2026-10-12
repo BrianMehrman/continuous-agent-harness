@@ -155,7 +155,7 @@ git commit -m "docs: keep project status only in STATUS.md"
 **Files:**
 - Modify: `AGENTS.md`
 
-- [ ] **Step 1: Add a status, plans, and evidence section**
+- [x] **Step 1: Add a status, plans, and evidence section**
 
 Insert this section between the `## Where things live` section and `## Build and verification`:
 
@@ -167,7 +167,7 @@ Insert this section between the `## Where things live` section and `## Build and
 - A pass/fail claim names the command, date, and commit it ran against. A code change after that run invalidates the claim until the command is rerun.
 ```
 
-- [ ] **Step 2: Remove the stale sentence and add test environment facts**
+- [x] **Step 2: Remove the stale sentence and add test environment facts**
 
 In `## Build and verification`, delete exactly this sentence (keep the rest of its bullet):
 
@@ -181,7 +181,7 @@ Then add this bullet after that bullet:
 - Integration tests read `HARNESS_DB_URL` (default `jdbc:postgresql://127.0.0.1:55432/harness`), `HARNESS_TEMPORAL_TARGET` (default `127.0.0.1:7233`), and `HARNESS_RUNNER_IMAGE` (no default; runner and evaluator tests need the image ID from `runner/image.lock`). Use exact class names in `--tests` filters, for example `./gradlew integrationTest --tests 'com.brianmehrman.harness.execution.CodingWorkflowSmokeIT'`. The pattern `*RecoveryIT` also matches `RunnerRecoveryIT` and `EvaluationRuntimeRecoveryIT`, which need Docker and the runner image.
 ```
 
-- [ ] **Step 3: Replace the test rule**
+- [x] **Step 3: Replace the test rule**
 
 In `## Git and task workflow`, replace:
 
@@ -195,7 +195,7 @@ with:
 Keep each task on a focused branch and within its planned scope. Tests cover the main features (safe file edits, isolated build/test, evaluator verdicts, the model adapter, the bounded coding loop, and the operator API/CLI) and the behavior a change touches. Do not add crash, race, recovery, or deployment-continuity tests unless the owner asks; this overrides test steps in existing plans.
 ```
 
-- [ ] **Step 4: Check**
+- [x] **Step 4: Check**
 
 ```sh
 grep -c "add meaningful tests for behavior changes\|later plan tasks" AGENTS.md
@@ -206,7 +206,7 @@ wc -l < AGENTS.md
 
 Expected: `0`, then `2`, then `ok` for all three names, and a line count of 45 or less.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```sh
 git add AGENTS.md
