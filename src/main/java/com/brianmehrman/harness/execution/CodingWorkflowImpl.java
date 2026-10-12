@@ -73,7 +73,9 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 long modelDeadline = Math.min(deadline,
                         Workflow.currentTimeMillis() + input.limits().modelAttemptMillis());
                 try {
-                    reply = timedActivities(modelDeadline, 1).callModel(new ModelCall(input.runId(), invocation, attempt,
+                    // Redeliver an interrupted Activity once so its durable attempt receipt can resolve
+                    // whether the model call completed before the worker stopped.
+                    reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
                             input.profileRevision(), conversation, modelDeadline));
                     break;
                 } catch (ActivityFailure error) {
