@@ -9,5 +9,7 @@
 __pycache__/
 **/build/
 **/.gradle/
+/web/node_modules/
+/web/*.tsbuildinfo
 /.metals/
 /.vscode/

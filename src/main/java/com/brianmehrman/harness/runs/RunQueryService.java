@@ -77,9 +77,10 @@ public class RunQueryService {
                         "exists(select 1 from evaluation_runtime rt join evaluation e on e.invocation_id=rt.invocation_id " +
                         "where e.run_id=? and rt.artifact_sha256=b.sha256) or " +
                         "exists(select 1 from model_attempt m where m.run_id=? and " +
-                        "(m.request_blob_id=b.sha256 or m.response_blob_id=b.sha256)))",
+                        "(m.request_blob_id=b.sha256 or m.response_blob_id=b.sha256)) or " +
+                        "exists(select 1 from repository_work_item w where w.run_id=? and w.review_blob_id=b.sha256))",
                 (rs, row) -> rs.getString(1),
-                digest, runId, runId, runId, runId, runId, runId);
+                digest, runId, runId, runId, runId, runId, runId, runId);
         if (rows.isEmpty()) throw new IllegalArgumentException("Unknown run artifact");
         return new Artifact(rows.getFirst(), blobs.get(digest));
     }

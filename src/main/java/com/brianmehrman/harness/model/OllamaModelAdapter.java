@@ -81,7 +81,7 @@ public final class OllamaModelAdapter implements ModelAdapter {
                         })).build();
         var options = OllamaChatOptions.builder().model(profile.modelTag())
                 .numCtx(profile.contextTokens()).numPredict(profile.outputTokens())
-                .temperature(profile.temperature()).truncate(false).toolCallbacks(tools).build();
+                .temperature(profile.temperature()).truncate(false).disableThinking().toolCallbacks(tools).build();
         var model = OllamaChatModel.builder().ollamaApi(api).options(options)
                 .retryTemplate(new RetryTemplate(RetryPolicy.withMaxRetries(0))).build();
         org.springframework.ai.chat.model.ChatResponse response;
@@ -202,7 +202,7 @@ public final class OllamaModelAdapter implements ModelAdapter {
             tool("write_file", "Replace a file after checking its expected hash", "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"expectedSha256\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"expectedSha256\",\"content\"]}"),
             tool("run_tests", "Run the fixed test command on the current snapshot", "{\"type\":\"object\",\"properties\":{}}"),
             tool("build", "Build the current snapshot with the fixed command", "{\"type\":\"object\",\"properties\":{}}"),
-            tool("submit", "Submit the current snapshot for independent evaluation", "{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"]}"));
+            tool("submit", "Submit the current snapshot for host review or evaluation", "{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"]}"));
 
     private static ToolCallback tool(String name, String description, String schema) {
         return new ToolCallback() {

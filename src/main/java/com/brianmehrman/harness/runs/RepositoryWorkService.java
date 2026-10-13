@@ -4,6 +4,7 @@ import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
+import com.brianmehrman.harness.workspace.SnapshotRef;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -11,10 +12,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
 
 /** Durable repository-task intake; the model never receives the live checkout. */
 @Service
@@ -24,16 +27,19 @@ public class RepositoryWorkService {
     private final RepositorySourceImporter importer;
     private final ProfileRevisionStore profiles;
     private final BlobStore blobs;
+    private final ReviewArtifactService reviews;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RepositoryWorkService(JdbcTemplate jdbc, PlatformTransactionManager manager,
-            RepositorySourceImporter importer, ProfileRevisionStore profiles, BlobStore blobs) {
+            RepositorySourceImporter importer, ProfileRevisionStore profiles, BlobStore blobs,
+            ReviewArtifactService reviews) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(manager));
         this.transactions.setTimeout(20);
         this.importer = Objects.requireNonNull(importer);
         this.profiles = Objects.requireNonNull(profiles);
         this.blobs = Objects.requireNonNull(blobs);
+        this.reviews = Objects.requireNonNull(reviews);
     }
 
     public WorkAccepted create(CreateWorkRequest request) {
@@ -76,13 +82,21 @@ public class RepositoryWorkService {
     }
 
     public Map<String, Object> list() {
-        List<WorkSummary> rows = jdbc.query("select w.run_id,w.title,w.base_commit,w.profile_revision," +
-                        "p.status,p.version,c.delivered_at is not null,w.created_at from repository_work_item w " +
-                        "join run_projection p on p.run_id=w.run_id join run_request r on r.run_id=w.run_id " +
-                        "join run_command c on c.command_id=r.command_id order by w.created_at,w.run_id limit 100",
-                (rs, index) -> new WorkSummary(rs.getString(1), rs.getString(2), rs.getString(3),
+        String select = "select w.run_id,w.title,w.base_commit,w.profile_revision," +
+                "p.status,p.version,c.delivered_at is not null,w.created_at,p.updated_at,a.acquired_at " +
+                "from repository_work_item w " +
+                "join run_projection p on p.run_id=w.run_id join run_request r on r.run_id=w.run_id " +
+                "join run_command c on c.command_id=r.command_id " +
+                "left join run_admission a on a.run_id=w.run_id ";
+        RowMapper<WorkSummary> mapper = (rs, index) -> new WorkSummary(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getString(5), rs.getLong(6),
-                        rs.getBoolean(7) ? "DELIVERED" : "ACCEPTED", rs.getTimestamp(8).toInstant().toString(), 0));
+                        rs.getBoolean(7) ? "DELIVERED" : "ACCEPTED", rs.getTimestamp(8).toInstant().toString(),
+                        rs.getTimestamp(9).toInstant().toString(),
+                        rs.getTimestamp(10) == null ? null : rs.getTimestamp(10).toInstant().toString(), 0);
+        List<WorkSummary> rows = new ArrayList<>(jdbc.query(select +
+                "where p.status='QUEUED' or a.run_id is not null order by w.created_at,w.run_id", mapper));
+        rows.addAll(jdbc.query(select + "where p.status<>'QUEUED' and a.run_id is null " +
+                "order by w.created_at desc,w.run_id desc limit 100", mapper));
         String activeId = jdbc.queryForList("select run_id from run_admission where slot_id=1", String.class)
                 .stream().findFirst().orElse(null);
         WorkSummary active = null;
@@ -92,11 +106,22 @@ public class RepositoryWorkService {
             if (row.workId().equals(activeId)) active = row;
             else if (row.status().equals("QUEUED")) queue.add(new WorkSummary(row.workId(), row.title(),
                     row.baseCommit(), row.profileRevision(), row.status(), row.version(),
-                    row.deliveryStatus(), row.createdAt(), queue.size() + 1));
+                    row.deliveryStatus(), row.createdAt(), row.updatedAt(), row.startedAt(), queue.size() + 1));
             else history.add(row);
         }
         var result = new LinkedHashMap<String, Object>();
         result.put("active", active);
+        BenchmarkActive benchmarkActive = null;
+        if (active == null && activeId != null) {
+            benchmarkActive = jdbc.query("select r.run_id,p.status,a.acquired_at,p.updated_at " +
+                            "from run_request r join run_projection p on p.run_id=r.run_id " +
+                            "join run_admission a on a.run_id=r.run_id " +
+                            "where r.run_id=? and r.kind='BENCHMARK'",
+                    (rs,n) -> new BenchmarkActive(rs.getString(1), rs.getString(2),
+                            rs.getTimestamp(3).toInstant().toString(), rs.getTimestamp(4).toInstant().toString()),
+                    activeId).stream().findFirst().orElse(null);
+        }
+        result.put("benchmarkActive", benchmarkActive);
         result.put("queue", queue);
         result.put("history", history);
         return result;
@@ -104,11 +129,15 @@ public class RepositoryWorkService {
 
     public Map<String, Object> detail(String runId) {
         var rows = jdbc.query("select w.title,w.instructions_blob_id,w.base_commit,w.seed_sha256," +
-                        "w.profile_revision,p.status,p.version,p.stale,p.last_sequence,w.review_blob_id " +
-                        "from repository_work_item w join run_projection p on p.run_id=w.run_id where w.run_id=?",
+                        "w.profile_revision,p.status,p.version,p.stale,p.last_sequence,w.review_blob_id," +
+                        "w.final_sha256,w.model_summary,c.delivered_at is not null,p.updated_at,p.snapshot_sha256 " +
+                        "from repository_work_item w join run_projection p on p.run_id=w.run_id " +
+                        "join run_request r on r.run_id=w.run_id join run_command c on c.command_id=r.command_id " +
+                        "where w.run_id=?",
                 (rs, index) -> new Object[]{rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getString(5), rs.getString(6), rs.getLong(7),
-                        rs.getBoolean(8), rs.getLong(9), rs.getString(10)}, runId);
+                        rs.getBoolean(8), rs.getLong(9), rs.getString(10),rs.getString(11),rs.getString(12),
+                        rs.getBoolean(13),rs.getTimestamp(14).toInstant(),rs.getString(15)}, runId);
         if (rows.isEmpty()) throw new IllegalArgumentException("Unknown work item");
         Object[] row = rows.getFirst();
         var result = new LinkedHashMap<String, Object>();
@@ -120,10 +149,50 @@ public class RepositoryWorkService {
         result.put("profileRevision", row[4]);
         result.put("status", row[5]);
         result.put("version", row[6]);
-        result.put("stale", row[7]);
+        result.put("stale", (Boolean)row[7] || (Boolean)row[12] &&
+                ((java.time.Instant)row[13]).isBefore(java.time.Instant.now().minusSeconds(15)) &&
+                !List.of("READY_FOR_REVIEW", "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED",
+                        "LIMIT_EXHAUSTED", "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5]));
         result.put("lastSequence", row[8]);
-        result.put("reviewBlobId", row[9]);
+        String reviewBlobId = (String)row[9];
+        String finalSnapshot = (String)row[10];
+        if (reviewBlobId == null && List.of("FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
+                "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5])) {
+            var unfinished = reviews.packageUnsubmitted(runId, new SnapshotRef((String)row[14]));
+            reviewBlobId = unfinished.diffBlobId();
+            finalSnapshot = unfinished.finalSha256();
+        }
+        result.put("reviewBlobId", reviewBlobId);
+        result.put("finalSnapshotSha256", finalSnapshot == null ? row[14] : finalSnapshot);
+        result.put("modelSummary", row[11]);
+        result.put("checks", reviews.checks(runId));
+        result.put("deliveryStatus", (Boolean)row[12] ? "DELIVERED" : "ACCEPTED");
+        result.put("cancellations", jdbc.query("select command_id,delivered_at is not null,outcome_json::text " +
+                        "from run_command where run_id=? and kind='CANCEL' order by accepted_at",
+                (rs,n) -> Map.of("commandId",rs.getString(1),"deliveryStatus",rs.getBoolean(2) ? "DELIVERED" : "ACCEPTED",
+                        "applicationOutcome",rs.getString(3) == null ? "PENDING" : rs.getString(3)), runId));
         return result;
+    }
+
+    public List<WorkEvent> events(String runId, long after) {
+        if (after < 0) throw new IllegalArgumentException("Invalid event cursor");
+        var cursors = jdbc.queryForList("select p.last_sequence from run_projection p join repository_work_item w " +
+                "on w.run_id=p.run_id where w.run_id=?", Long.class, runId);
+        if (cursors.isEmpty()) throw new IllegalArgumentException("Unknown work item");
+        return jdbc.query("select sequence,type,payload_blob_id from run_event " +
+                        "where run_id=? and sequence>? and sequence<=? order by sequence limit 200",
+                (rs, n) -> {
+                    JsonNode payload = json.readTree(blobs.get(rs.getString(3)));
+                    String type = rs.getString(2);
+                    String status = payload.path("status").asText();
+                    String stage = payload.path("stage").asText("terminal");
+                    if ("STATE_CHANGED".equals(type)) stage = "QUEUED".equals(status) ? "queued" :
+                            "RUNNING".equals(status) ? "model" : "READY_FOR_REVIEW".equals(status) ? "review" : "terminal";
+                    String summary = payload.path("summary").asText("STATE_CHANGED".equals(type) ?
+                            status.replace('_', ' ').toLowerCase() : type.replace('_', ' ').toLowerCase());
+                    return new WorkEvent(rs.getLong(1), type, stage, summary,
+                            payload.path("artifactDigest").isTextual() ? payload.path("artifactDigest").asText() : null);
+                }, runId, after, cursors.getFirst());
     }
 
     public WorkAccepted cancel(String runId, String commandId, long expectedVersion) {
@@ -183,5 +252,8 @@ public class RepositoryWorkService {
     public record CreateWorkRequest(String commandId, String title, String instructions, String profileRevision) {}
     public record WorkAccepted(String workId, String commandId, String deliveryStatus) {}
     public record WorkSummary(String workId, String title, String baseCommit, String profileRevision,
-            String status, long version, String deliveryStatus, String createdAt, int position) {}
+            String status, long version, String deliveryStatus, String createdAt,
+            String updatedAt, String startedAt, int position) {}
+    public record WorkEvent(long sequence, String type, String stage, String summary, String artifactDigest) {}
+    public record BenchmarkActive(String runId, String status, String startedAt, String updatedAt) {}
 }

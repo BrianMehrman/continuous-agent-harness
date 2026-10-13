@@ -1,0 +1,43 @@
+plugins { id 'java' }
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+    options.compilerArgs.add('-parameters')
+}
+repositories { mavenCentral() }
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+    implementation platform('org.springframework.ai:spring-ai-bom:2.0.1')
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.springframework.ai:spring-ai-ollama'
+    implementation 'io.temporal:temporal-sdk:1.36.1'
+    implementation 'org.apache.commons:commons-compress:1.28.0'
+    runtimeOnly 'org.postgresql:postgresql'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'io.temporal:temporal-testing:1.36.1'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+dependencyLocking { lockAllConfigurations() }
+sourceSets {
+    main.java.setSrcDirs(['/work/input/src/main/java'])
+    main.resources.setSrcDirs(['/work/input/src/main/resources'])
+    test.java.setSrcDirs(['/work/input/src/test/java'])
+    test.resources.setSrcDirs(['/work/input/src/test/resources'])
+}
+layout.buildDirectory = file('/work/build')
+test {
+    useJUnitPlatform()
+    exclude '**/*IT.class'
+    maxHeapSize = '256m'
+    maxParallelForks = 1
+}
+tasks.withType(JavaCompile).configureEach { options.fork = false }
+jar { archiveFileName = 'task-tracker.jar' }

@@ -16,6 +16,8 @@ public interface RunActivities {
     String appendConversation(String previousBlobId, ModelReply reply, List<ToolOutcome> outcomes);
     void publish(String runId, long sequence, long version, String status,
             String snapshotSha256, String terminalResultBlobId);
+    default void publishProgress(String runId, long sequence, long version, String status,
+            String snapshotSha256, String type, String stage, String summary, String artifactDigest) {}
     /** Request a stop and report whether the runner has persisted its result and finished cleanup. */
     boolean cancelRunner(String invocationId);
 }

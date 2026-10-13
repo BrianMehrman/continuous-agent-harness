@@ -62,6 +62,24 @@ def integrationTest = tasks.register('integrationTest', Test) {
 tasks.named('check') { dependsOn integrationTest }
 tasks.named('jar') { enabled = false }
 
+def installWeb = tasks.register('installWeb', Exec) {
+    inputs.files('web/package.json', 'web/package-lock.json')
+    outputs.file('web/node_modules/.package-lock.json')
+    workingDir file('web')
+    commandLine 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'
+}
+def buildWeb = tasks.register('buildWeb', Exec) {
+    dependsOn installWeb
+    inputs.files(fileTree('web/src'), 'web/index.html', 'web/package.json', 'web/package-lock.json', 'web/vite.config.ts', 'web/tsconfig.json')
+    outputs.dir(layout.buildDirectory.dir('generated-web'))
+    workingDir file('web')
+    commandLine 'npm', 'run', 'build'
+}
+tasks.named('processResources') {
+    dependsOn buildWeb
+    from(layout.buildDirectory.dir('generated-web')) { into 'static' }
+}
+
 // Trusted benchmark assets travel with the application; generated outputs never do.
 tasks.named('processResources') {
     from('benchmarks/task-tracker-v1/starter') {

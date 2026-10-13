@@ -47,7 +47,7 @@ public class RunAdmissionStore {
         if (reserved.isEmpty()) return false;
         var description = gateway.describe(reserved.get());
         if (description == null || !switch (description.status()) {
-            case "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
+            case "SUCCEEDED", "READY_FOR_REVIEW", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
                     "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW",
                     "WORKFLOW_EXECUTION_STATUS_COMPLETED" -> true;
             default -> false;

@@ -1,6 +1,7 @@
 package com.brianmehrman.harness.runner;
 
 import com.brianmehrman.harness.workspace.WorkspacePathPolicy;
+import com.brianmehrman.harness.workspace.RepositoryWorkspacePolicy;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -31,7 +32,7 @@ public class DockerCommandClient {
                 || !hash.equals(node.path("Config").path("Labels").path("harness.input").asText())) throw new Collision();
         return Optional.of(new Container(node.path("Id").asText(),node.path("State").path("Status").asText(),node.path("State").path("ExitCode").asInt(),java.time.Instant.parse(node.path("State").path("FinishedAt").asText()).toEpochMilli()));
     }
-    void create(String name,String hash,String image,Operation operation,long deadline) {
+    void create(String name,String hash,String image,Operation operation,long deadline,boolean repository) {
         List<String> args=new ArrayList<>(List.of("create","--name",name,"--pull","never",
             "--label","harness.owner="+OWNER,"--label","harness.input="+hash,
             "--network","none","--read-only","--user","1000:1000","--cpus","2",
@@ -41,13 +42,14 @@ public class DockerCommandClient {
             "--tmpfs","/work:rw,nosuid,nodev,size=512m,mode=1777",
             "--tmpfs","/tmp:rw,nosuid,nodev,size=64m,mode=1777",
             "--tmpfs","/control:rw,nosuid,nodev,size=1m,mode=0755",
-            "--env","HARNESS_OPERATION="+operation.name(),"--env","HARNESS_DEADLINE_EPOCH_MILLIS="+deadline,image));
+            "--env","HARNESS_OPERATION="+operation.name(),"--env","HARNESS_DEADLINE_EPOCH_MILLIS="+deadline,
+            "--env","HARNESS_PROJECT_KIND="+(repository ? "REPOSITORY" : "BENCHMARK"),image));
         Reply reply=command(args,null,65536);
         if(reply.code()!=0 && inspect(name,hash).isEmpty()) throw new Unavailable("Docker create failed");
     }
     void start(Container container) { require(command(List.of("start",container.id()),null,65536)); }
-    void stage(Container container,Map<String,String> files) {
-        require(command(List.of("exec","-i","--user","0",container.id(),"/bin/sh","/opt/runner/stage.sh"),archive(files),65536));
+    void stage(Container container,Map<String,String> files,boolean repository) {
+        require(command(List.of("exec","-i","--user","0",container.id(),"/bin/sh","/opt/runner/stage.sh"),archive(files,repository),65536));
     }
     void stop(Container container) { require(command(List.of("kill",container.id()),null,65536)); }
     void remove(Container container) { require(command(List.of("rm",container.id()),null,65536)); }
@@ -73,7 +75,11 @@ public class DockerCommandClient {
         return bytes;
     }
     static byte[] archive(Map<String,String> files) {
-        WorkspacePathPolicy.validateSnapshot(files);
+        return archive(files,false);
+    }
+    static byte[] archive(Map<String,String> files,boolean repository) {
+        if (repository) RepositoryWorkspacePolicy.validateSnapshot(files);
+        else WorkspacePathPolicy.validateSnapshot(files);
         try {
             var bytes=new ByteArrayOutputStream();
             try(var tar=new TarArchiveOutputStream(bytes,"UTF-8")) {
@@ -81,8 +87,9 @@ public class DockerCommandClient {
                 tar.setAddPaxHeadersForNonAsciiNames(true);
                 for(var entry:new TreeMap<>(files).entrySet()) {
                     String path=entry.getKey();
-                    if(!path.equals("README.md") && !path.startsWith("src/main/java/") && !path.startsWith("src/test/java/")) continue;
-                    WorkspacePathPolicy.validateWritePath(path);
+                    if (!repository && !path.equals("README.md") && !path.startsWith("src/main/java/") && !path.startsWith("src/test/java/")) continue;
+                    if (repository) RepositoryWorkspacePolicy.validateWritePath(path);
+                    else WorkspacePathPolicy.validateWritePath(path);
                     byte[] body=entry.getValue().getBytes(StandardCharsets.UTF_8);
                     var file=new TarArchiveEntry(path); file.setSize(body.length); file.setMode(0444); file.setLastModifiedTime(java.nio.file.attribute.FileTime.fromMillis(0));
                     tar.putArchiveEntry(file); tar.write(body); tar.closeArchiveEntry();

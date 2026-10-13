@@ -13,18 +13,23 @@ public class JdbcRunner implements Runner {
     private final JdbcTemplate jdbc;
     private final WorkspaceStore workspaces;
     private final String image;
+    private final String repositoryImage;
     private final JsonMapper json=JsonMapper.builder().build();
     public JdbcRunner(JdbcTemplate jdbc, WorkspaceStore workspaces,
-                      @Value("${harness.runner.image:}") String image) {
+                      @Value("${harness.runner.image:}") String image,
+                      @Value("${harness.runner.repository-image:}") String repositoryImage) {
         this.jdbc=new JdbcTemplate(java.util.Objects.requireNonNull(jdbc.getDataSource()));
         this.jdbc.setQueryTimeout(10); this.workspaces=workspaces; this.image=image;
+        this.repositoryImage=repositoryImage;
     }
     @Override public void ensureStarted(InvocationRequest request) {
         // Existing receipts keep their original image across deployments.
         if(request==null) throw new IllegalArgumentException("Request required");
         InvocationHasher.identity(request.invocationId());
         var old=jdbc.queryForList("select image_id from runner_invocation where invocation_id=?",String.class,request.invocationId());
-        String frozenImage=old.isEmpty()?image:old.getFirst();
+        boolean repository = Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_workspace " +
+                "where run_id=? and benchmark_version='repository-v1')", Boolean.class, request.runId()));
+        String frozenImage=old.isEmpty()?(repository ? repositoryImage : image):old.getFirst();
         String hash=InvocationHasher.hash(request,frozenImage);
         workspaces.files(request.runId(),request.snapshot());
         if(old.isEmpty() && request.deadlineEpochMillis()-System.currentTimeMillis()>120_000)

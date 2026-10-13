@@ -8,6 +8,7 @@ import com.brianmehrman.harness.runner.Runner;
 import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
 import com.brianmehrman.harness.runs.RunProjectionRepository;
+import com.brianmehrman.harness.runs.ReviewArtifactService;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.SnapshotRef;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import io.temporal.failure.ApplicationFailure;
@@ -38,11 +40,13 @@ public class RunActivitiesImpl implements RunActivities {
     private final ModelAdapterFactory adapters;
     private final ToolRouter tools;
     private final RunTelemetry telemetry;
+    private final JdbcTemplate jdbc;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RunActivitiesImpl(BlobStore blobs, ProfileRevisionStore profiles, WorkspaceStore workspaces,
             Runner runner, Evaluator evaluator, ModelAttemptStore attempts, RunAdmissionStore admissions,
-            RunProjectionRepository projections, ModelAdapterFactory adapters, RunTelemetry telemetry) {
+            RunProjectionRepository projections, ModelAdapterFactory adapters, RunTelemetry telemetry,
+            JdbcTemplate jdbc, ReviewArtifactService reviews) {
         this.blobs = Objects.requireNonNull(blobs);
         this.profiles = Objects.requireNonNull(profiles);
         this.workspaces = Objects.requireNonNull(workspaces);
@@ -51,8 +55,9 @@ public class RunActivitiesImpl implements RunActivities {
         this.admissions = Objects.requireNonNull(admissions);
         this.projections = Objects.requireNonNull(projections);
         this.adapters = Objects.requireNonNull(adapters);
-        this.tools = new ToolRouter(workspaces, runner, Objects.requireNonNull(evaluator), blobs);
+        this.tools = new ToolRouter(workspaces, runner, Objects.requireNonNull(evaluator), blobs, jdbc, reviews);
         this.telemetry = Objects.requireNonNull(telemetry);
+        this.jdbc = Objects.requireNonNull(jdbc);
     }
 
     @Override public boolean acquireAdmission(String runId) { return admissions.acquire(runId); }
@@ -62,6 +67,17 @@ public class RunActivitiesImpl implements RunActivities {
     }
 
     @Override public String startConversation(RunSpec spec) {
+        if ("repository-v1".equals(spec.benchmarkVersion())) {
+            var task = jdbc.queryForMap("select title,instructions_blob_id,base_commit from repository_work_item where run_id=?", spec.runId());
+            String instructions = new String(blobs.get((String)task.get("instructions_blob_id")), StandardCharsets.UTF_8);
+            var messages = List.of(
+                    Map.of("role", "system", "content", "Edit the frozen repository snapshot using the six provided tools. " +
+                            "Read relevant files, make a focused change, run checks, then submit a concise summary. " +
+                            "A failed check must be reported honestly. Submit means ready for human review; changes are not applied to the live repository."),
+                    Map.of("role", "user", "content", "Task: " + task.get("title") + "\nBase commit: " + task.get("base_commit") +
+                            "\nInstructions:\n" + instructions));
+            return conversationBlob(Map.of("version", 1, "messages", messages));
+        }
         String requirements = workspaces.files(spec.runId(), new SnapshotRef(spec.seedSnapshotSha256()))
                 .get("REQUIREMENTS.md");
         if (requirements == null) throw new IllegalStateException("Benchmark requirements are missing");
@@ -85,7 +101,7 @@ public class RunActivitiesImpl implements RunActivities {
         if (System.currentTimeMillis() >= call.deadlineEpochMillis() ||
                 "CANCEL_REQUESTED".equals(status) || "STOPPING".equals(status) ||
                 "CANCELLED".equals(status) || "EXPIRED".equals(status) ||
-                "SUCCEEDED".equals(status) || "FAILED".equals(status) ||
+                "SUCCEEDED".equals(status) || "READY_FOR_REVIEW".equals(status) || "FAILED".equals(status) ||
                 "LIMIT_EXHAUSTED".equals(status) || "INFRASTRUCTURE_FAILED".equals(status) ||
                 "CONTEXT_OVERFLOW".equals(status)) {
             attempts.abandon(lease);
@@ -161,6 +177,19 @@ public class RunActivitiesImpl implements RunActivities {
         projections.append(new RunEvent(runId, sequence, runId + ":event-" + sequence,
                 "STATE_CHANGED", blob));
         telemetry.transition(runId, status);
+    }
+
+    @Override public void publishProgress(String runId, long sequence, long version, String status,
+            String snapshotSha256, String type, String stage, String summary, String artifactDigest) {
+        var payload = new LinkedHashMap<String, Object>();
+        payload.put("version", version);
+        payload.put("status", status);
+        payload.put("snapshotSha256", snapshotSha256);
+        payload.put("stage", stage);
+        payload.put("summary", summary);
+        payload.put("artifactDigest", artifactDigest);
+        String blob = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(payload));
+        projections.append(new RunEvent(runId, sequence, runId + ":event-" + sequence, type, blob));
     }
 
     @Override public boolean cancelRunner(String invocationId) {
