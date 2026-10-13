@@ -22,6 +22,14 @@ class WorkspacePathPolicyTest {
         assertThatCode(() -> WorkspacePathPolicy.validateWritePath(path)).doesNotThrowAnyException();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"src/main/java/com/brianmehrman/harness/benchmark/TaskTrackerCases.java",
+            "src/test/java/com/brianmehrman/harness/benchmark/TaskTrackerEvaluatorIT.java",
+            "src/test/java/com/brianmehrman/harness/benchmark/fixtures/good/Main.java"})
+    void repositoryTasksCannotSeeOrEditEvaluatorCode(String path) {
+        assertThat(RepositoryWorkspacePolicy.allowed(path)).isFalse();
+    }
+
     @Test void countsUtf8BytesAndRejectsOversizeFiles() {
         assertThat(WorkspacePathPolicy.validateSnapshot(Map.of("README.md", "é"))).isEqualTo(2);
         assertThatIllegalArgumentException().isThrownBy(() -> WorkspacePathPolicy.validateSnapshot(Map.of("README.md", "é".repeat(32769))));

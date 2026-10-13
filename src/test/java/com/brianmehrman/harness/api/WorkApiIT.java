@@ -9,6 +9,7 @@ import com.brianmehrman.harness.execution.RunAdmissionStore;
 import com.brianmehrman.harness.runs.RepositoryWorkService;
 import com.brianmehrman.harness.runs.ReviewArtifactService;
 import com.brianmehrman.harness.runs.BlobStore;
+import com.brianmehrman.harness.runs.CommandDispatcher;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
 import com.brianmehrman.harness.workspace.WriteRequest;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
@@ -18,6 +19,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
@@ -47,8 +49,10 @@ class WorkApiIT {
         registry.add("spring.datasource.url", () -> base + (base.contains("?") ? "&" : "?")
                 + "currentSchema=" + SCHEMA);
         registry.add("spring.flyway.schemas", () -> SCHEMA);
+        registry.add("harness.temporal.task-queue", () -> "work-it-" + SCHEMA);
     }
     @LocalServerPort int port;
+    @Autowired CommandDispatcher dispatcher;
     @Autowired ProfileRevisionStore profiles;
     @Autowired JdbcTemplate jdbc;
     @Autowired RunAdmissionStore admission;
@@ -112,6 +116,27 @@ class WorkApiIT {
         jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", firstId);
     }
 
+    @Test void locallyCancelledStartIsNeverDeliveredAndInFlightDeliveryRefusesCancel() throws Exception {
+        String profile = "work-cancel-" + UUID.randomUUID();
+        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+                "a".repeat(64), 8192, 1024, 0, true, null));
+        String startCommand = "work-cancel-" + UUID.randomUUID();
+        String runId = create(startCommand, profile);
+        jdbc.update("update run_command set lease_owner='other-dispatcher',lease_until=now()+interval '30 seconds' " +
+                "where command_id=?", startCommand);
+        String cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 0));
+        assertEquals(409, request("POST", "/api/work/" + runId + "/cancel", cancel).statusCode(),
+                "A START that may be mid-delivery must not be cancelled locally");
+        assertEquals("QUEUED", work.detail(runId).get("status"));
+        jdbc.update("update run_command set lease_owner=null,lease_until=null where command_id=?", startCommand);
+
+        assertEquals(202, request("POST", "/api/work/" + runId + "/cancel", cancel).statusCode());
+        assertFalse(dispatcher.dispatchOnce(runId), "A locally cancelled START must not be delivered");
+        assertNull(jdbc.queryForObject("select delivered_at from run_command where command_id=?",
+                java.sql.Timestamp.class, startCommand));
+        assertEquals("CANCELLED", work.detail(runId).get("status"));
+    }
+
     @Test void admissionWaitsForOlderDeliveredWork() throws Exception {
         String profile = "work-order-" + UUID.randomUUID();
         profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
@@ -138,7 +163,11 @@ class WorkApiIT {
         String runId = create("work-review-" + UUID.randomUUID(), profile);
         String seed = jdbc.queryForObject("select seed_sha256 from repository_work_item where run_id=?", String.class, runId);
         var parent = new com.brianmehrman.harness.workspace.SnapshotRef(seed);
-        String original = workspace.files(runId, parent).get("README.md");
+        var seedFiles = workspace.files(runId, parent);
+        assertTrue(seedFiles.keySet().stream().noneMatch(path -> path.contains("/harness/benchmark/")),
+                "Host-side evaluator code must not be model-visible");
+        assertTrue(seedFiles.containsKey("README.md"));
+        String original = seedFiles.get("README.md");
         byte[] live = Files.readAllBytes(Path.of("README.md"));
         String changed = original + "\nA review-only test edit.\n";
         var edited = workspace.write(new WriteRequest(runId, "write-review", parent, "README.md",
@@ -148,6 +177,11 @@ class WorkApiIT {
                         "'FAILED',?,?::jsonb)", "check-review", runId, "f".repeat(64), edited.sha256(),
                 "sha256:" + "a".repeat(64), "review-container-" + UUID.randomUUID(),
                 "{\"exitCode\":1,\"uncertain\":false}");
+        jdbc.update("insert into runner_invocation(invocation_id,run_id,input_sha256,snapshot_sha256,operation," +
+                        "image_id,deadline_at,status,container_name,result_json) values (?,?,?,?,'BUILD',?,now()," +
+                        "'SUCCEEDED',?,?::jsonb)", "check-earlier", runId, "e".repeat(64), seed,
+                "sha256:" + "a".repeat(64), "review-container-" + UUID.randomUUID(),
+                "{\"exitCode\":0,\"uncertain\":false}");
         var review = reviews.packageReview(runId, edited, "Changed the README; check failed.");
         assertEquals(review.diffBlobId(), reviews.packageReview(runId, edited,
                 "Changed the README; check failed.").diffBlobId());
@@ -155,9 +189,16 @@ class WorkApiIT {
         assertTrue(diff.contains("+A review-only test edit."));
         assertFalse(diff.contains("diff --git a/src/"));
         assertTrue(diff.length() < 1024, "A small append should have a concise review diff");
-        assertEquals(1, review.checks().size());
-        assertEquals("FAILED", review.checks().getFirst().status());
-        assertEquals(1, review.checks().getFirst().exitCode());
+        var reviewChecks = review.checks().stream().filter(check -> check.invocationId().equals("check-review")).toList();
+        assertEquals(1, reviewChecks.size());
+        assertEquals("FAILED", reviewChecks.getFirst().status());
+        assertEquals(1, reviewChecks.getFirst().exitCode());
+        @SuppressWarnings("unchecked")
+        var detailChecks = (List<Map<String, Object>>)work.detail(runId).get("checks");
+        var byId = new java.util.HashMap<Object, Object>();
+        detailChecks.forEach(check -> byId.put(check.get("invocationId"), check.get("forFinalSnapshot")));
+        assertEquals(Boolean.TRUE, byId.get("check-review"), "The failed check ran on the submitted snapshot");
+        assertEquals(Boolean.FALSE, byId.get("check-earlier"), "A green check on an older snapshot must not read as current");
         assertArrayEquals(live, Files.readAllBytes(Path.of("README.md")));
         assertEquals(review.diffBlobId(), work.detail(runId).get("reviewBlobId"));
 

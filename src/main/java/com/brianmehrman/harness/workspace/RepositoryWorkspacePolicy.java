@@ -11,7 +11,8 @@ public final class RepositoryWorkspacePolicy {
 
     public static boolean allowed(String path) {
         WorkspacePathPolicy.validatePath(path);
-        if (path.contains("/benchmark/fixtures/")) return false;
+        // Host-side evaluator cases, seeds, and fixtures are private to the trusted benchmark.
+        if (path.contains("/benchmark/fixtures/") || path.contains("/com/brianmehrman/harness/benchmark/")) return false;
         return path.equals("README.md") ||
                 (path.startsWith("src/main/java/") || path.startsWith("src/test/java/")) && path.endsWith(".java") ||
                 path.startsWith("src/main/resources/") && path.endsWith(".yaml") ||

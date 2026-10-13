@@ -69,7 +69,8 @@ public class RepositorySourceImporter {
     private static boolean allowed(String path) {
         if (path.contains("..") || path.contains("\\") || path.startsWith("/") || path.indexOf('\0') >= 0)
             return false;
-        if (path.contains("/benchmark/fixtures/")) return false;
+        // Host-side evaluator cases, seeds, and fixtures are private to the trusted benchmark.
+        if (path.contains("/benchmark/fixtures/") || path.contains("/com/brianmehrman/harness/benchmark/")) return false;
         return path.equals("README.md") ||
                 (path.startsWith("src/main/java/") || path.startsWith("src/test/java/")) && path.endsWith(".java") ||
                 path.startsWith("src/main/resources/") && path.endsWith(".yaml") ||

@@ -163,9 +163,22 @@ public class RepositoryWorkService {
             finalSnapshot = unfinished.finalSha256();
         }
         result.put("reviewBlobId", reviewBlobId);
-        result.put("finalSnapshotSha256", finalSnapshot == null ? row[14] : finalSnapshot);
+        String reviewed = finalSnapshot == null ? (String)row[14] : finalSnapshot;
+        result.put("finalSnapshotSha256", reviewed);
         result.put("modelSummary", row[11]);
-        result.put("checks", reviews.checks(runId));
+        // A receipt for an earlier snapshot says nothing about the code under review.
+        result.put("checks", reviews.checks(runId).stream().map(check -> {
+            var view = new LinkedHashMap<String, Object>();
+            view.put("invocationId", check.invocationId());
+            view.put("operation", check.operation());
+            view.put("snapshotSha256", check.snapshotSha256());
+            view.put("status", check.status());
+            view.put("exitCode", check.exitCode());
+            view.put("uncertain", check.uncertain());
+            view.put("logBlobId", check.logBlobId());
+            view.put("forFinalSnapshot", check.snapshotSha256().equals(reviewed));
+            return view;
+        }).toList());
         result.put("deliveryStatus", (Boolean)row[12] ? "DELIVERED" : "ACCEPTED");
         result.put("cancellations", jdbc.query("select command_id,delivered_at is not null,outcome_json::text " +
                         "from run_command where run_id=? and kind='CANCEL' order by accepted_at",
@@ -217,6 +230,12 @@ public class RepositoryWorkService {
             if ((Long)row[1] != expectedVersion) throw new IllegalArgumentException("Expected version differs from current run version");
             if (!"QUEUED".equals(row[0]) || (Boolean)row[2])
                 throw new IllegalArgumentException("Only undelivered queued work can be cancelled locally");
+            // Lock START against the dispatcher. A held lease or any earlier attempt means the workflow may exist.
+            Boolean mayBeDelivered = jdbc.queryForObject("select c.attempt_count>0 or c.lease_until is not null and c.lease_until>=now() " +
+                    "from run_command c join run_request r on r.command_id=c.command_id where r.run_id=? for update of c",
+                    Boolean.class, runId);
+            if (Boolean.TRUE.equals(mayBeDelivered))
+                throw new IllegalArgumentException("Expected START delivery to settle; retry the cancellation");
             jdbc.update("insert into run_command(command_id,run_id,kind,payload_sha256,payload_json," +
                             "delivered_at,outcome_json) values (?,?,'CANCEL',?,?::jsonb,now(),'{\"status\":\"APPLIED\"}'::jsonb)",
                     commandId, runId, digest, payload);

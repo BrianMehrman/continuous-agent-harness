@@ -129,6 +129,7 @@ class RepositoryTaskIT {
             assertEquals(1, checks.size(), checks.toString());
             assertEquals("FAILED", checks.get(0).path("status").asText(), checks.toString());
             assertNotEquals(0, checks.get(0).path("exitCode").asInt());
+            assertTrue(checks.get(0).path("forFinalSnapshot").asBoolean(), "The failed build checked the submitted code");
 
             String diff = new String(blobs.get(detail.path("reviewBlobId").asText()), StandardCharsets.UTF_8);
             assertTrue(diff.contains("+class ReviewProbe {"), diff);

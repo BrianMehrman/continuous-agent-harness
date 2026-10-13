@@ -68,6 +68,8 @@ public class CommandDispatcher {
                         scope +
                         "and (c.kind='START' or exists (select 1 from run_command s where s.run_id=c.run_id " +
                         "and s.kind='START' and s.delivered_at is not null)) " +
+                        "and not (c.kind='START' and exists (select 1 from repository_work_item w " +
+                        "where w.run_id=c.run_id and w.cancelled_at is not null)) " +
                         "order by c.accepted_at,c.command_id for update skip locked limit 1",
                 (rs, row) -> new Claim(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rs.getInt(5) + 1, UUID.randomUUID().toString()),
