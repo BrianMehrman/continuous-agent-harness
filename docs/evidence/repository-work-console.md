@@ -34,6 +34,16 @@ Run against commit `64a0439` (Boot JAR SHA-256 `81daff3c3dfa7a0623f103411f864dcf
 
 `RepositoryTaskIT` drives a scripted model through the real workflow, tool router, Docker runner, and review packaging. It writes a syntax-broken Java file, the real `BUILD` fails, and the model claims success on submit. The task ends `READY_FOR_REVIEW` with the `FAILED` receipt visible, a diff containing only that file, contiguous events whose stages match the tool calls, an `after` cursor that returns only later events, and cleaned runner containers. A deliberate mutation (repository submit reporting `SUCCEEDED`) made it fail. On `64a0439`, `./gradlew integrationTest --offline --tests 'com.brianmehrman.harness.execution.RepositoryTaskIT' --tests 'com.brianmehrman.harness.api.WorkApiIT'` and `./gradlew test --offline` (55 tests) passed.
 
+## Final review fixes (2026-10-12)
+
+A fresh whole-branch review found three issues, each fixed test-first in commit `e6f7d99`:
+
+- A local cancel could succeed while START was mid-delivery or after an earlier delivery attempt, and the dispatcher would still deliver a cancelled START, leaving a workflow that never ends. Cancel now refuses with 409 in those states, and the dispatcher skips START for cancelled work.
+- Repository snapshots included the host-side benchmark evaluator (`TaskTrackerCases`, `TaskTrackerEvaluator`, and its test). That package is now excluded from capture and from the repository write allowlist.
+- Check receipts were not tied to the reviewed snapshot. Detail now marks `forFinalSnapshot`; the console labels earlier-snapshot checks and warns when the final snapshot has no host check.
+
+On `e6f7d99`, `./gradlew build --offline --rerun-tasks` passed 58 unit and 18 integration tests, with the existing opt-in live probe skipped, and left no runner containers. The browser journey above ran before these fixes, on `64a0439`.
+
 ## Limits of this proof
 
 The browser journey was headless Chromium driven by Playwright, not a person at a screen; screen-reader output was not checked. The model's proposed README change was not applied. The review diff is one prefix/suffix hunk per file, so when the model dropped README's final newline, unchanged lines appeared removed and re-added. A benchmark evaluator did not judge this arbitrary repository task, and the original task-tracker live benchmark remains open.
