@@ -53,10 +53,10 @@ record CapturedSource(String commitSha, SortedMap<String, String> files, String 
 WorkAccepted create(CreateWorkRequest request);
 ```
 
-- [ ] **Step 1: Define the migration and request records.** Add a `repository_work_item` row keyed by existing `run_id`, with title, instruction blob ID, base commit, seed digest, review status, and accepted sequence/time. Add a run-kind discriminator without rewriting prior benchmark rows. Verify the migration filename and Flyway description are `create repository work items`.
-- [ ] **Step 2: Write one API integration check.** The check submits two distinct command IDs, repeats the first request, asserts the same ID, changes its payload and asserts conflict, observes one active and one queued in acceptance order, cancels the queued item, and verifies it never gains the slot. Use a scripted gateway and the existing isolated database schema pattern.
-- [ ] **Step 3: Implement the host-side API and queue.** Reuse transactional command acceptance and `run_request` identity. Resolve `main` to a full commit before insert; return `400/409/503` for invalid input, conflicting identity, or unavailable local Git/profile services. Select the oldest accepted eligible item when admission is free; keep benchmark starts visibly tagged.
-- [ ] **Step 4: Run the focused API check and `./gradlew test --offline`.** Inspect the actual discovered test count and failure report. Commit the migration and API slice after `git diff --check`.
+- [x] **Step 1: Define the migration and request records.** Add a `repository_work_item` row keyed by existing `run_id`, with title, instruction blob ID, base commit, seed digest, review status, and accepted sequence/time. Add a run-kind discriminator without rewriting prior benchmark rows. Verify the migration filename and Flyway description are `create repository work items`.
+- [x] **Step 2: Write one API integration check.** The check submits two distinct command IDs, repeats the first request, asserts the same ID, changes its payload and asserts conflict, observes one active and one queued in acceptance order, cancels the queued item, and verifies it never gains the slot. Use a scripted gateway and the existing isolated database schema pattern.
+- [x] **Step 3: Implement the host-side API and queue.** Reuse transactional command acceptance and `run_request` identity. Resolve `main` to a full commit before insert; return `400/409/503` for invalid input, conflicting identity, or unavailable local Git/profile services. Select the oldest accepted eligible item when admission is free; keep benchmark starts visibly tagged.
+- [x] **Step 4: Run the focused API check and `./gradlew test --offline`.** Inspect the actual discovered test count and failure report. Commit the migration and API slice after `git diff --check`.
 
 ## Task 2: Isolated repository editing and review result
 
