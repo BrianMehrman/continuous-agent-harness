@@ -23,12 +23,13 @@ Create credentials only when all four files are absent and you have chosen a new
 docker compose up -d --wait postgres temporal
 docker compose run --rm --no-deps temporal-namespace
 python3 scripts/build-runner-image.py
+python3 scripts/build-repository-runner-image.py
 export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
-./gradlew build
-java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar
+export HARNESS_REPOSITORY_RUNNER_IMAGE="$(sed -n 's/^REPOSITORY_RUNNER_IMAGE=//p' runner/repository-image.lock)"
+./gradlew bootJar --offline
 ```
 
-In another terminal:
+Then follow [run the browser console](#run-the-browser-console). In another terminal, after the API starts:
 
 ```sh
 curl --fail http://127.0.0.1:8080/actuator/health
@@ -36,9 +37,9 @@ curl --fail http://127.0.0.1:8080/actuator/health
 
 Expect HTTP 200 and `status: UP`. This is application/database health; the integration suite independently verifies Temporal connectivity and workflow execution. The namespace setup command is safe to repeat and creates `harness` with seven-day retention. It is a separate setup job so Compose readiness waits only for persistent services. PostgreSQL readiness uses TCP to avoid accepting its temporary initialization server.
 
-`./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs main-feature checks against PostgreSQL, Temporal, and an isolated Docker runner. Build the runner image first and export `HARNESS_RUNNER_IMAGE`; runner and evaluator integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
+`./gradlew test` runs unit tests without Docker. `./gradlew build` additionally runs main-feature checks against PostgreSQL, Temporal, and an isolated Docker runner. Build the pinned runner images first; runner and evaluator integration tests require a working Docker daemon. Reports are in `build/test-results/test/` and `build/test-results/integrationTest/`.
 
-`./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*RunnerIT'`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
+`./gradlew integrationTest` runs only the integration suite. Both `check` and `build` require live services; `build` also creates the executable JAR. For focused checks, use `./gradlew test --tests '*RoleConfigurationTest'` or `./gradlew integrationTest --tests '*RunnerIT'`. `RepositoryTaskIT` also needs `HARNESS_REPOSITORY_RUNNER_IMAGE` from `runner/repository-image.lock`. Unmatched filters fail. HTML reports are under `build/reports/tests/`.
 
 The Groovy DSL build uses Java 21 toolchains, native BOM constraints, and a committed `gradle.lockfile`. To intentionally update dependencies, review the version changes, run `./gradlew dependencies --write-locks`, then verify the full build. Do not refresh locks as part of ordinary builds. For local API development, use `./gradlew bootRun`.
 
@@ -80,7 +81,47 @@ java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profil
 java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
 ```
 
-`api` is the default and exposes loopback HTTP with a Temporal client. `worker` requires `HARNESS_WORKER_BUILD_ID` in the form `sha256:` plus the packaged JAR's 64-character lowercase SHA-256 digest. It registers the pinned coding workflow on the `coding-v1` task queue under the `coding-harness` deployment. Keep the old worker version running until its pinned runs finish; see [operations](operations.md) for selecting, rolling back, and draining versions. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Task 3 enables runner polling when `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
+`api` is the default and exposes loopback HTTP with a Temporal client. `worker` requires `HARNESS_WORKER_BUILD_ID` in the form `sha256:` plus the packaged JAR's 64-character lowercase SHA-256 digest. It registers the pinned coding workflow on the `coding-v1` task queue under the `coding-harness` deployment. Keep the old worker version running until its pinned runs finish; see [operations](operations.md) for selecting, rolling back, and draining versions. `runner` creates no Temporal client or factory. Worker and runner are non-web processes kept alive by Spring Boot. Runner polling requires `HARNESS_RUNNER_ENABLED=true`. All three configure the application database and run Flyway at startup.
+
+## Run the browser console
+
+With PostgreSQL, Temporal, the `harness` namespace, and both pinned runner images ready, start these three roles from the repository root. Export the image IDs in **both** the worker and runner terminals; the worker records the chosen immutable image before the runner starts a container.
+
+```sh
+export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
+export HARNESS_REPOSITORY_RUNNER_IMAGE="$(sed -n 's/^REPOSITORY_RUNNER_IMAGE=//p' runner/repository-image.lock)"
+export HARNESS_WORKER_BUILD_ID="sha256:$(shasum -a 256 build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar | awk '{print $1}')"
+```
+
+Terminal 1 (worker, with the exports above):
+
+```sh
+java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=worker
+```
+
+After the worker registers, route new workflows to that build. Existing pinned workflows remain on their original build:
+
+```sh
+docker compose run --rm --no-deps --entrypoint temporal temporal-namespace \
+  --address temporal:7233 --namespace harness worker deployment set-current-version \
+  --deployment-name coding-harness --build-id "$HARNESS_WORKER_BUILD_ID" --yes
+```
+
+Terminal 2 (runner, with both image exports above):
+
+```sh
+HARNESS_RUNNER_ENABLED=true java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=runner
+```
+
+Terminal 3 (API):
+
+```sh
+java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar --spring.profiles.active=api
+```
+
+Open <http://127.0.0.1:8080/>. Verify an installed local Ollama model in the form, submit a title and free-text task, and watch the active slot, queue, loop events, and review diff. The form displays the current full `main` commit; submission rechecks and freezes the commit. Inputs are limited to 512 allowlisted UTF-8 files, 8 MiB total, and 256 KiB per file. Only paths described in the [console design](superpowers/specs/2026-10-12-work-queue-loop-console-design.md) can be edited. Checks run from frozen snapshots with a trusted Gradle configuration in a network-disabled Docker container. A model submission becomes **Ready for review**, even when checks fail or were not recorded. Inspect host check receipts and logs; model prose is not a check result. The diff never applies itself to the live checkout.
+
+Stop each role with Ctrl-C. Stop task-owned Compose services with `docker compose down` when finished; the database volume remains. The original live task-tracker benchmark remains a separate acceptance task.
 
 Application startup does not select or download an Ollama model. The opt-in local profile probe can make a model request when `HARNESS_OLLAMA_MODEL` names an installed tag; see [the local model boundary](#explicit-local-model-boundary-task-5).
 

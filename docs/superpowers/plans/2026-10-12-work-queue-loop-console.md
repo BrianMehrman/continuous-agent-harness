@@ -10,6 +10,8 @@
 
 **Spec:** [Work queue and loop console design](../specs/2026-10-12-work-queue-loop-console-design.md)
 
+**Implementation note:** Source capture uses bounded `git ls-tree`/`git cat-file` calls at the resolved full SHA in place of a tar archive. The existing coding workflow branches on `repository-v1` and retains one admission slot. To honor the owner's request for a small suite, `WorkApiIT` covers intake, idempotency, FIFO admission, and cancellation; `RepositoryTaskIT` drives a scripted model through the real workflow, Docker runner, and review packaging; a real Ollama browser journey verifies the page. No extra recovery, race, or deployment suite was added.
+
 ## Global constraints
 
 - Work in the primary checkout on `feat/work-queue-loop-console`; integrate only through a PR. Never apply generated changes to the live checkout automatically.
@@ -71,11 +73,11 @@ record ReviewBundle(String baseCommit, String seedSha256, String finalSha256,
 ReviewBundle packageReview(String workId, String submittedSnapshotSha256, String summary);
 ```
 
-- [ ] **Step 1: Make source capture safe.** Read tracked files from `git archive` of the resolved full SHA using argument-list process execution and bounded tar decoding. Reject links, binary data, path escapes, files over 256 KiB, more than 512 files, and total text over 8 MiB. Import only the global-constraint paths; exclude private fixtures, credentials, build outputs, and generated trees. Preserve the current benchmark's 64-file/1-MiB policy separately. Check that moving `main` after capture leaves the task's committed tree unchanged.
-- [ ] **Step 2: Write one scripted execution check.** The scripted model reads a file, writes a small allowed edit, invokes a check, and submits. Assert the diff contains only that edit, the live checkout bytes are unchanged, and the status is `READY_FOR_REVIEW`. Make the check command fail once and assert the failure remains visible in the review bundle rather than becoming a pass claim.
-- [ ] **Step 3: Implement repository execution.** Branch by run kind at command dispatch. Reuse durable model attempts, bounded loop limits, cancellation, and one admission slot. Give the model repository instructions and a distinct tool contract. Run trusted offline Gradle commands from a pinned image against an isolated snapshot; never run candidate code on the host or use candidate-provided build settings/arguments. Store the model's submission separately from host check receipts.
-- [ ] **Step 4: Generate review artifacts.** Diff the frozen seed and submitted snapshot on the host with stable path ordering and bounded output; include new/modified/deleted file entries supported by the write policy. Associate downloads with this work ID and serve attachments with `nosniff`. Preserve last snapshot and failure evidence for incomplete tasks.
-- [ ] **Step 5: Run the scripted task check and relevant unit checks.** Inspect image/container cleanup and the diff. Commit the execution slice once the main behavior is verified.
+- [x] **Step 1: Make source capture safe.** Read tracked files from `git archive` of the resolved full SHA using argument-list process execution and bounded tar decoding. Reject links, binary data, path escapes, files over 256 KiB, more than 512 files, and total text over 8 MiB. Import only the global-constraint paths; exclude private fixtures, credentials, build outputs, and generated trees. Preserve the current benchmark's 64-file/1-MiB policy separately. Check that moving `main` after capture leaves the task's committed tree unchanged.
+- [x] **Step 2: Write one scripted execution check.** The scripted model reads a file, writes a small allowed edit, invokes a check, and submits. Assert the diff contains only that edit, the live checkout bytes are unchanged, and the status is `READY_FOR_REVIEW`. Make the check command fail once and assert the failure remains visible in the review bundle rather than becoming a pass claim.
+- [x] **Step 3: Implement repository execution.** Branch by run kind at command dispatch. Reuse durable model attempts, bounded loop limits, cancellation, and one admission slot. Give the model repository instructions and a distinct tool contract. Run trusted offline Gradle commands from a pinned image against an isolated snapshot; never run candidate code on the host or use candidate-provided build settings/arguments. Store the model's submission separately from host check receipts.
+- [x] **Step 4: Generate review artifacts.** Diff the frozen seed and submitted snapshot on the host with stable path ordering and bounded output; include new/modified/deleted file entries supported by the write policy. Associate downloads with this work ID and serve attachments with `nosniff`. Preserve last snapshot and failure evidence for incomplete tasks.
+- [x] **Step 5: Run the scripted task check and relevant unit checks.** Inspect image/container cleanup and the diff. Commit the execution slice once the main behavior is verified.
 
 ## Task 3: Honest loop progress API
 
@@ -88,9 +90,9 @@ record WorkEvent(long sequence, String type, String stage, String summary, Strin
 List<WorkEvent> events(String workId, long after); // sequence > after, contiguous, at most 200
 ```
 
-- [ ] **Step 1: Record semantic transitions.** Publish model-call, tool/edit, check, submission, and terminal events only after their durable receipts exist. Keep payloads bounded and avoid returning prompts, secrets, raw source, and raw logs in list responses.
-- [ ] **Step 2: Query progress safely.** Return events only through the contiguous projection cursor; retain a stale indicator when Temporal cannot confirm authority. Distinguish accepted, delivered, admitted, running, and terminal states.
-- [ ] **Step 3: Extend the scripted check.** Assert event sequence and stage correspond to the real tool calls, and that an `after` cursor yields only subsequent events. Run the focused check and commit.
+- [x] **Step 1: Record semantic transitions.** Publish model-call, tool/edit, check, submission, and terminal events only after their durable receipts exist. Keep payloads bounded and avoid returning prompts, secrets, raw source, and raw logs in list responses.
+- [x] **Step 2: Query progress safely.** Return events only through the contiguous projection cursor; retain a stale indicator when Temporal cannot confirm authority. Distinguish accepted, delivered, admitted, running, and terminal states.
+- [x] **Step 3: Extend the scripted check.** Assert event sequence and stage correspond to the real tool calls, and that an `after` cursor yields only subsequent events. Run the focused check and commit.
 
 ## Task 4: Local React console
 
@@ -104,16 +106,16 @@ type WorkEvent = { sequence: number; type: string; stage: Stage; summary: string
 // Keep the last confirmed cursor across refresh, and append only events with a higher sequence.
 ```
 
-- [ ] **Step 1: Pin the frontend dependencies and build.** Use React/TypeScript/Vite with a committed lockfile. Build once into Boot static resources; a production JAR must serve the UI without a separate Vite server. No CDN or remote script at runtime.
-- [ ] **Step 2: Implement the primary page.** Show the selected full base commit, verified profile, task form, active task, FIFO queue with positions, and terminal history. Disable controls during a pending mutation and keep the command ID stable for a retry after a lost response.
-- [ ] **Step 3: Implement detail and loop view.** Poll events by sequence, deduplicate on reconnect, and display a text equivalent of the highlighted loop stage. Show projection stale/authority unavailable, check failures, submission summary, diff download, and cancellation delivery/application separately. Label unknown usage as unknown.
-- [ ] **Step 4: Verify packaging and navigation.** Run the pinned frontend build and confirm the Boot JAR serves `/` and its assets from loopback. Inspect keyboard navigation and readable stage labels. Commit the UI slice; the real browser journey is Task 5.
+- [x] **Step 1: Pin the frontend dependencies and build.** Use React/TypeScript/Vite with a committed lockfile. Build once into Boot static resources; a production JAR must serve the UI without a separate Vite server. No CDN or remote script at runtime.
+- [x] **Step 2: Implement the primary page.** Show the selected full base commit, verified profile, task form, active task, FIFO queue with positions, and terminal history. Disable controls during a pending mutation and keep the command ID stable for a retry after a lost response.
+- [x] **Step 3: Implement detail and loop view.** Poll events by sequence, deduplicate on reconnect, and display a text equivalent of the highlighted loop stage. Show projection stale/authority unavailable, check failures, submission summary, diff download, and cancellation delivery/application separately. Label unknown usage as unknown.
+- [x] **Step 4: Verify packaging and navigation.** Run the pinned frontend build and confirm the Boot JAR serves `/` and its assets from loopback. Inspect keyboard navigation and readable stage labels. Commit the UI slice; the real browser journey is Task 5.
 
 ## Task 5: Local use proof and PR
 
 **Files:** Update `docs/STATUS.md`, `README.md`, `docs/development.md`, and a concise `docs/evidence/repository-work-console.md`.
 
-- [ ] **Step 1: Start only the required local services and build the packaged application.** Use the selected installed Ollama model and the pinned runner image. Record exact commands, date, commit, model digest, run ID, elapsed time, and any task-owned resources.
-- [ ] **Step 2: Run one real browser journey.** Submit a free-text repository task through the UI, queue and cancel a second task, refresh detail mid-run, and inspect active/queued order. Confirm the first task reaches a terminal state, shows its actual loop, and yields a downloadable diff and check receipts. Record a failed outcome truthfully and diagnose from evidence; do not hand-edit generated source to claim success.
-- [ ] **Step 3: Run relevant final checks.** Run `./gradlew test --offline` and one uncached `./gradlew build --offline --rerun-tasks` with required services and pinned image. Inspect reports, final diff, staged files, sensitive additions, link targets, and `git status`. Stop task-owned services/containers, preserving database volumes.
+- [x] **Step 1: Start only the required local services and build the packaged application.** Use the selected installed Ollama model and the pinned runner image. Record exact commands, date, commit, model digest, run ID, elapsed time, and any task-owned resources.
+- [x] **Step 2: Run one real browser journey.** Submit a free-text repository task through the UI, queue and cancel a second task, refresh detail mid-run, and inspect active/queued order. Confirm the first task reaches a terminal state, shows its actual loop, and yields a downloadable diff and check receipts. Record a failed outcome truthfully and diagnose from evidence; do not hand-edit generated source to claim success.
+- [x] **Step 3: Run relevant final checks.** Run `./gradlew test --offline` and one uncached `./gradlew build --offline --rerun-tasks` with required services and pinned image. Inspect reports, final diff, staged files, sensitive additions, link targets, and `git status`. Stop task-owned services/containers, preserving database volumes.
 - [ ] **Step 4: Push the branch and open a PR.** Write the PR body with Summary, Evidence, and Merge Danger; verify the remote head SHA and open state. Leave merging to the owner. Keep the original Task 10 live task-tracker benchmark separately named and unclaimed.

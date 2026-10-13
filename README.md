@@ -2,7 +2,7 @@
 
 An environment for running and studying AI agents with local and remote models. Define execution in code, observe each run, and control how work proceeds.
 
-The Java/Spring Boot harness starts with a durable single-agent loop and grows into interactive workflows, graphs, and coordinated fleets. Automatic continuation after crashes and compatible deployments is required in the first usable version. Its operator interface supports four activities:
+The Java/Spring Boot harness has a local browser console for repository coding tasks. It shows the active task, FIFO queue, recent history, recorded loop events, check receipts, and a downloadable review diff. Proposed changes stay in isolated snapshots until a person applies them. The broader operator vision includes four activities:
 
 - **Monitor** progress, outputs, failures, resource usage, and application health.
 - **Communicate** with running agents and respond to requests for input.
@@ -26,12 +26,13 @@ python3 scripts/create-local-secrets.py
 docker compose up -d --wait postgres temporal
 docker compose run --rm --no-deps temporal-namespace
 python3 scripts/build-runner-image.py
+python3 scripts/build-repository-runner-image.py
 export HARNESS_RUNNER_IMAGE="$(sed -n 's/^RUNNER_IMAGE=//p' runner/image.lock)"
-./gradlew build
-java -jar build/libs/continuous-agent-harness-0.1.0-SNAPSHOT.jar
+export HARNESS_REPOSITORY_RUNNER_IMAGE="$(sed -n 's/^REPOSITORY_RUNNER_IMAGE=//p' runner/repository-image.lock)"
+./gradlew bootJar --offline
 ```
 
-In another terminal, run `curl --fail http://127.0.0.1:8080/actuator/health` and expect `"status":"UP"`. The build runs unit and integration tests; `./gradlew test` runs unit tests without Docker. Stop the API with Ctrl-C, then run `docker compose down` to stop the default Compose project while preserving its database volume. See [local development](docs/development.md) for existing credentials, an isolated test project, troubleshooting, process roles, and configuration.
+Start the API, worker, and runner in separate terminals using the commands in [local development](docs/development.md#run-the-browser-console). Open <http://127.0.0.1:8080/>, verify an installed Ollama model from the form, and add work. `./gradlew test --offline` runs unit tests; `./gradlew build --offline` also runs integration checks. Stop the three application processes with Ctrl-C, then run `docker compose down` to stop the default Compose project while preserving its database volume.
 
 The specifications describe the broader intended behavior; ADRs marked **Proposed** remain recommendations for review.
 
