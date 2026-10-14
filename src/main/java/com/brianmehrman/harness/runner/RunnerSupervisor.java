@@ -67,6 +67,8 @@ public class RunnerSupervisor {
     }
     private void reconcile(Map<String,Object> row) {
         String id=(String)row.get("invocation_id"), name=(String)row.get("container_name"), hash=(String)row.get("input_sha256");
+        boolean repository = Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_workspace " +
+                "where run_id=? and benchmark_version='repository-v1')", Boolean.class, row.get("run_id")));
         if(row.get("result_json")==null && row.get("status").equals("REQUESTED")) boundary.reached("AFTER_LEDGER_COMMIT",id);
         Optional<DockerCommandClient.Container> existing=docker.inspect(name,hash);
         if(row.get("result_json")!=null) {
@@ -89,7 +91,7 @@ public class RunnerSupervisor {
         }
         if(existing.isEmpty()) {
             if(!row.get("status").equals("REQUESTED")) { retryOrFinish(row,"Container evidence disappeared"); return; }
-            docker.create(name,hash,(String)row.get("image_id"),Operation.valueOf((String)row.get("operation")),((Timestamp)row.get("deadline_at")).getTime());
+            docker.create(name,hash,(String)row.get("image_id"),Operation.valueOf((String)row.get("operation")),((Timestamp)row.get("deadline_at")).getTime(),repository);
             boundary.reached("AFTER_CREATE",id);
             jdbc.update("update runner_invocation set status='STAGING' where invocation_id=? and lease_owner=?",id,owner); return;
         }
@@ -97,7 +99,7 @@ public class RunnerSupervisor {
         if(container.state().equals("created")) { docker.start(container); return; }
         if(container.state().equals("running")) {
             if(!row.get("status").equals("RUNNING")) {
-                docker.stage(container,workspaces.files((String)row.get("run_id"),new SnapshotRef((String)row.get("snapshot_sha256"))));
+                docker.stage(container,workspaces.files((String)row.get("run_id"),new SnapshotRef((String)row.get("snapshot_sha256"))),repository);
                 boundary.reached("AFTER_START",id);
                 jdbc.update("update runner_invocation set status='RUNNING' where invocation_id=? and lease_owner=?",id,owner);
             }
@@ -111,7 +113,7 @@ public class RunnerSupervisor {
             finish(row,"FAILED",container.exitCode(),null,"Invalid or missing runner output"); return;
         }
         String status=container.exitCode()==0?"SUCCEEDED":container.exitCode()==124?"TIMED_OUT":"FAILED";
-        if(row.get("operation").equals("BUILD") && (output.artifact().length==0 || !output.artifactError().isEmpty())) status="FAILED";
+        if(!repository && row.get("operation").equals("BUILD") && (output.artifact().length==0 || !output.artifactError().isEmpty())) status="FAILED";
         finish(row,status,container.exitCode(),output,null);
     }
     private void retryOrFinish(Map<String,Object> row,String message) {

@@ -37,7 +37,7 @@ public class RunTelemetry {
 
     public void transition(String runId, String status) {
         String outcome = switch (status) {
-            case "QUEUED", "RUNNING", "CANCEL_REQUESTED", "STOPPING", "SUCCEEDED", "FAILED",
+            case "QUEUED", "RUNNING", "CANCEL_REQUESTED", "STOPPING", "SUCCEEDED", "READY_FOR_REVIEW", "FAILED",
                     "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED", "INFRASTRUCTURE_FAILED",
                     "CONTEXT_OVERFLOW" -> status;
             default -> "UNKNOWN";

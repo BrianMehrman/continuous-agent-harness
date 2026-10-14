@@ -88,6 +88,8 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 }
             }
             if (reply == null) return terminal("INFRASTRUCTURE_FAILED");
+            if ("repository-v1".equals(input.benchmarkVersion()))
+                progress("MODEL_RECORDED", "model", "Model response recorded", null);
             if (Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
             if (reply.tools().isEmpty()) {
                 if (remindedOfProtocol) return terminal("FAILED");
@@ -124,8 +126,17 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 activeRunnerInvocation = null;
                 snapshot = outcome.snapshot().sha256();
                 outcomes.add(outcome);
+                if ("repository-v1".equals(input.benchmarkVersion())) {
+                    String stage = switch (request.name()) {
+                        case "run_tests", "build" -> "check";
+                        case "submit" -> "submit";
+                        default -> "tool";
+                    };
+                    progress("TOOL_RECORDED", stage, request.name() + " result recorded", null);
+                }
                 if (outcome.failureCode() != null) return terminal("INFRASTRUCTURE_FAILED");
-                if (outcome.attemptedSubmission() && outcome.passed()) return terminal("SUCCEEDED");
+                if (outcome.attemptedSubmission() && outcome.passed())
+                    return terminal("repository-v1".equals(input.benchmarkVersion()) ? "READY_FOR_REVIEW" : "SUCCEEDED");
             }
             conversation = activities.appendConversation(conversation, reply, outcomes);
         }
@@ -186,9 +197,15 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         activities.publish(spec.runId(), sequence, version, status, snapshot, null);
     }
 
+    private void progress(String type, String stage, String summary, String artifactDigest) {
+        sequence++;
+        activities.publishProgress(spec.runId(), sequence, version, status, snapshot,
+                type, stage, summary, artifactDigest);
+    }
+
     private static boolean terminalStatus(String status) {
         return switch (status) {
-            case "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
+            case "SUCCEEDED", "READY_FOR_REVIEW", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
                     "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW" -> true;
             default -> false;
         };

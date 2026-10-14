@@ -32,8 +32,8 @@ public final class ModelConfiguration {
 
     public ProfileRevision selectLocalProfile(ProfileRevisionStore store, String modelTag) {
         String endpoint = environment.getProperty("harness.model.ollama.endpoint", "http://127.0.0.1:11434");
-        int context = environment.getProperty("harness.model.context-tokens", Integer.class, 8192);
-        int output = environment.getProperty("harness.model.output-tokens", Integer.class, 1024);
+        int context = environment.getProperty("harness.model.context-tokens", Integer.class, 16384);
+        int output = environment.getProperty("harness.model.output-tokens", Integer.class, 4096);
         double temperature = environment.getProperty("harness.model.temperature", Double.class, 0.0);
         return store.save(new LocalProfileProbe(endpoint).probe(modelTag, context, output, temperature));
     }

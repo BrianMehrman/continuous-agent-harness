@@ -6,6 +6,7 @@ import com.brianmehrman.harness.runner.InvocationResult;
 import com.brianmehrman.harness.runner.Operation;
 import com.brianmehrman.harness.runner.Runner;
 import com.brianmehrman.harness.runs.BlobStore;
+import com.brianmehrman.harness.runs.ReviewArtifactService;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
 import com.brianmehrman.harness.workspace.WriteRequest;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.nio.charset.StandardCharsets;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -23,13 +25,27 @@ public final class ToolRouter {
     private final Runner runner;
     private final Evaluator evaluator;
     private final BlobStore blobs;
+    private final JdbcTemplate jdbc;
+    private final ReviewArtifactService reviews;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public ToolRouter(WorkspaceStore workspaces, Runner runner, Evaluator evaluator, BlobStore blobs) {
+    public ToolRouter(WorkspaceStore workspaces, Runner runner, Evaluator evaluator, BlobStore blobs,
+            JdbcTemplate jdbc, ReviewArtifactService reviews) {
         this.workspaces = Objects.requireNonNull(workspaces);
         this.runner = Objects.requireNonNull(runner);
         this.evaluator = Objects.requireNonNull(evaluator);
         this.blobs = Objects.requireNonNull(blobs);
+        this.jdbc = Objects.requireNonNull(jdbc);
+        this.reviews = Objects.requireNonNull(reviews);
+    }
+
+    ToolRouter(WorkspaceStore workspaces, Runner runner, Evaluator evaluator, BlobStore blobs) {
+        this.workspaces = Objects.requireNonNull(workspaces);
+        this.runner = Objects.requireNonNull(runner);
+        this.evaluator = Objects.requireNonNull(evaluator);
+        this.blobs = Objects.requireNonNull(blobs);
+        this.jdbc = null;
+        this.reviews = null;
     }
 
     public ToolOutcome route(ToolInvocation call) {
@@ -118,6 +134,11 @@ public final class ToolRouter {
         if (args.size() != 1 || !args.path("summary").isTextual() ||
                 args.path("summary").asText().isBlank() || args.path("summary").asText().length() > 1000)
             return error(call, "INVALID_ARGUMENTS");
+        if (repository(call.runId())) {
+            var review = reviews.packageReview(call.runId(), call.snapshot(), args.path("summary").asText());
+            return ok(call, call.snapshot(), Map.of("status", "READY_FOR_REVIEW",
+                    "diffBlobId", review.diffBlobId(), "checks", review.checks()), true, true);
+        }
         long seed = Integer.toUnsignedLong(call.runId().hashCode());
         var verdict = evaluator.evaluate(call.runId(), call.invocationId(), call.snapshot(), seed,
                 call.deadlineEpochMillis());
@@ -129,6 +150,11 @@ public final class ToolRouter {
         return ok(call, call.snapshot(), response, true, verdict.passed(),
                 verdict.outcome() == com.brianmehrman.harness.benchmark.Evaluation.Outcome.INFRASTRUCTURE_FAILED
                         ? "EVALUATOR_INFRASTRUCTURE_FAILED" : null);
+    }
+
+    private boolean repository(String runId) {
+        return jdbc != null && Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_workspace " +
+                "where run_id=? and benchmark_version='repository-v1')", Boolean.class, runId));
     }
 
     private ToolOutcome ok(ToolInvocation call, com.brianmehrman.harness.workspace.SnapshotRef snapshot,

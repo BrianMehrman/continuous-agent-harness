@@ -17,7 +17,7 @@ if find /work/input ! -type f ! -type d -print -quit | grep -q .; then
 fi
 chown -R 0:0 /work/input
 find /work/input -type f -exec chmod 0444 {} +
-find /work/input -type d -exec chmod 0555 {} +
+find /work/input -type d -exec chmod 0755 {} +
 mkdir -p /work/project/gradle
 # Recover an interrupted stage that already made some trusted files read-only.
 find /work/project -type d -exec chmod 0755 {} +

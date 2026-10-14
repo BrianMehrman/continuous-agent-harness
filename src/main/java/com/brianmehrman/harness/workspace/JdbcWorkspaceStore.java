@@ -50,7 +50,7 @@ public class JdbcWorkspaceStore implements WorkspaceStore {
                 String.class, runId, ref.sha256());
         if (rows.isEmpty()) throw new IllegalArgumentException("Snapshot does not belong to this run");
         TreeMap<String,String> files = json.readValue(rows.getFirst(), new TypeReference<TreeMap<String,String>>() {});
-        WorkspacePathPolicy.validateSnapshot(files);
+        validateSnapshot(runId, files);
         if (!SnapshotHasher.snapshot(files).equals(ref.sha256())) throw new IllegalStateException("Snapshot integrity check failed");
         return Collections.unmodifiableSortedMap(files);
     }
@@ -67,7 +67,7 @@ public class JdbcWorkspaceStore implements WorkspaceStore {
             String actual = previous == null ? "absent" : SnapshotHasher.content(previous);
             if (!actual.equals(request.expectedSha256())) throw new IllegalArgumentException("Expected file hash does not match parent snapshot");
             files.put(request.path(), request.content());
-            var result = persist(files);
+            var result = persist(request.runId(), files);
             link(request.runId(), result.sha256());
             jdbc.update("insert into workspace_write_receipt(run_id,invocation_id,input_sha256,parent_sha256,result_sha256) values (?,?,?,?,?) on conflict do nothing",
                     request.runId(),request.invocationId(),input,request.parent().sha256(),result.sha256());
@@ -91,6 +91,21 @@ public class JdbcWorkspaceStore implements WorkspaceStore {
                 ref.sha256(), json.writeValueAsString(files), bytes, files.size());
         return ref;
     }
+    private SnapshotRef persist(String runId, SortedMap<String,String> files) {
+        int bytes = validateSnapshot(runId, files);
+        var ref = new SnapshotRef(SnapshotHasher.snapshot(files));
+        jdbc.update("insert into workspace_snapshot(sha256,files_json,byte_count,file_count) values (?,?::jsonb,?,?) on conflict do nothing",
+                ref.sha256(), json.writeValueAsString(files), bytes, files.size());
+        return ref;
+    }
+    private int validateSnapshot(String runId, SortedMap<String,String> files) {
+        return repository(runId) ? RepositoryWorkspacePolicy.validateSnapshot(files)
+                : WorkspacePathPolicy.validateSnapshot(files);
+    }
+    private boolean repository(String runId) {
+        var versions = jdbc.queryForList("select benchmark_version from run_workspace where run_id=?", String.class, runId);
+        return !versions.isEmpty() && "repository-v1".equals(versions.getFirst());
+    }
     private void link(String run, String digest) {
         jdbc.update("insert into run_snapshot(run_id,sha256) values (?,?) on conflict do nothing",run,digest);
     }
@@ -98,16 +113,17 @@ public class JdbcWorkspaceStore implements WorkspaceStore {
         jdbc.execute("set local statement_timeout = '10s'");
         jdbc.execute("set local lock_timeout = '10s'");
     }
-    private static void validate(WriteRequest request) {
+    private void validate(WriteRequest request) {
         if (request == null || request.parent() == null) throw new IllegalArgumentException("Write and parent are required");
         identity(request.runId()); identity(request.invocationId());
-        WorkspacePathPolicy.validateWritePath(request.path());
+        if (repository(request.runId())) RepositoryWorkspacePolicy.validateWritePath(request.path());
+        else WorkspacePathPolicy.validateWritePath(request.path());
         if (request.expectedSha256() == null || !(request.expectedSha256().equals("absent") || request.expectedSha256().matches("[0-9a-f]{64}"))) {
             throw new IllegalArgumentException("Expected hash must be SHA-256 or absent");
         }
-        WorkspacePathPolicy.validateContentLength(request.content());
-        if (WorkspacePathPolicy.utf8(request.content()).length > WorkspacePathPolicy.MAX_FILE_BYTES) {
-            throw new IllegalArgumentException("File exceeds 64 KiB");
+        int maxFile = repository(request.runId()) ? RepositoryWorkspacePolicy.MAX_FILE_BYTES : WorkspacePathPolicy.MAX_FILE_BYTES;
+        if (WorkspacePathPolicy.utf8(request.content()).length > maxFile) {
+            throw new IllegalArgumentException("File exceeds file limit");
         }
     }
     private static void identity(String value) {

@@ -17,6 +17,14 @@ public class RunAdmissionStore {
 
     public boolean acquire(String runId) {
         identity(runId);
+        var reserved = reservedRunId();
+        if (reserved.isPresent()) return runId.equals(reserved.get());
+        var oldest = jdbc.queryForList("select r.run_id from run_request r " +
+                        "join run_command c on c.command_id=r.command_id " +
+                        "join run_projection p on p.run_id=r.run_id " +
+                        "where c.delivered_at is not null and p.status='QUEUED' " +
+                        "order by c.accepted_at,c.command_id limit 1", String.class);
+        if (oldest.isEmpty() || !runId.equals(oldest.getFirst())) return false;
         jdbc.update("insert into run_admission(slot_id,run_id) values (1,?) on conflict do nothing", runId);
         return runId.equals(jdbc.queryForObject("select run_id from run_admission where slot_id=1",
                 String.class));
@@ -39,7 +47,7 @@ public class RunAdmissionStore {
         if (reserved.isEmpty()) return false;
         var description = gateway.describe(reserved.get());
         if (description == null || !switch (description.status()) {
-            case "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
+            case "SUCCEEDED", "READY_FOR_REVIEW", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
                     "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW",
                     "WORKFLOW_EXECUTION_STATUS_COMPLETED" -> true;
             default -> false;
