@@ -1,31 +1,58 @@
 # Delivery roadmap
 
-Status: Revised for Java/Spring Boot and first-version recovery; supporting design proposed
+Status: Revised 2026-10-17 by owner direction: long-running, plan-driven, multi-role harness first; benchmark acceptance through it
 
-Date: 2026-09-20
+Date: 2026-09-20; revised 2026-10-17
 
-This is a high-level roadmap. The first executable-task candidate is the [local coding implementation plan](2026-09-20-local-task-tracker-implementation.md), based on the [task-tracker benchmark](../specs/local-task-tracker-benchmark.md). The [durable foundation](../specs/spring-boot-durable-foundation.md) governs execution semantics.
+This is a high-level roadmap. Project status lives in [STATUS.md](../STATUS.md). The [durable foundation](../specs/spring-boot-durable-foundation.md) governs execution semantics. Each milestone below gets its own spec, implementation plan, and pull request.
 
-| Phase | Deliverable | Exit gate |
+## Goal
+
+A durable harness that takes a coding goal and carries it through spec, plan, and implemented, verified steps, using role agents on local and remote models. It runs in two modes, and an operator can watch it live in a browser UI:
+
+- **Human in the loop:** the operator approves the spec and the plan, and is called on every hard stop.
+- **Agent loop:** the plan reviewer approves the spec and plan instead, and a stalled developer goes back to the project manager to split its step. Every agent approval is recorded and visible. Hard stops still pause for the operator: cost limit, a budget the agents cannot split their way out of, and drift QA cannot resolve.
+
+Roles and their intended model class:
+
+| Role | Responsibility | Model class |
 |---|---|---|
-| 1 — Durable observable loop | Local/remote profiles, bounded execution, verified artifact, durable history, console, telemetry, crash recovery, deployment continuation | All phase-one criteria including P1-16 through P1-19, actual local/remote evidence, real-service recovery/deployment tests |
-| 2 — Interactive continuity | Messages, questions, safe pause/resume, explicit configuration revisions | Durable command redelivery and safe-boundary application verified |
-| 3 — Coded graphs and workflows | Versioned definitions, branches, bounded cycles, joins, execution graph | Failure/cancellation/recovery semantics verified |
-| 4 — Fleets and experiments | Delegation, isolated workers, mixed backends, evaluator comparisons | Comparable outcomes without duplicate task ownership |
+| Architect | Turn a goal into a design and spec | Strongest available, usually remote |
+| Project manager | Turn a spec into a plan of right-sized steps; split steps that are too large | Strong |
+| Plan reviewer | Check that the plan covers the spec and that each step fits a run budget; approve in agent-loop mode | Strong, independent of the project manager |
+| Developer | Implement one step: edit, build, test | Fast; local is acceptable |
+| QA | Verify a step against its acceptance criteria; detect drift between plan and implementation | Strong, independent of the developer |
 
-## First implementation plan
+The task-tracker benchmark becomes an acceptance test of this harness: run as a mission, it must end with a trusted evaluator pass.
 
-The task-tracker CLI and local Ollama are accepted. Review the supporting Spring AI/Temporal design in ADR 0007 and the linked file-level plan before coding. The plan starts with dependency compatibility and real-service setup, then proves workspace/runner/evaluator behavior, durable orchestration, and actual local completion. Select the installed model through a capability probe before live acceptance.
+## Architecture direction
 
-## Phase-one slices
+Temporal runs the role graph. A parent mission workflow holds the plan and moves between roles; each role step is a child workflow generalized from today's coding loop. A role is a model profile, an allowed tool set, and a prompt. Gates and pauses are durable signal waits, whether an operator or an agent resolves them. The plan is a durable, versioned document: steps with acceptance criteria, allowed files, and a size estimate. Agents never hold the plan only in memory; splitting a step creates a new plan version, and QA's drift check compares a step's criteria and allowed files against its diff and check receipts. The UI's graph and plan views read the same durable records.
 
-1. Deliver the local coding API/CLI slice: isolated persistent source, controlled build/test runner, independent evaluator, scripted and Ollama model adapters, durable commands, recovery/deployment checks, and real local benchmark evidence.
-2. Add the browser console with reconnect, cancellation, artifact inspection and linked retry under a separate plan.
-3. Add an authenticated remote provider and compare the same coding task against the local baseline.
-4. Validate the complete phase-wide operator experience and local/remote evidence before claiming all original P1 criteria complete.
+## Milestones
 
-Instrumentation begins in slice one. Each slice is delivered through a pull request. The first slice proves recovery before expanding UI or agent patterns. Recurring execution and checkpoint forks require separate specifications.
+Each milestone ships something usable and adds its own UI slice.
+
+| # | Milestone | Delivers | UI slice |
+|---|---|---|---|
+| M1 | Stall detection and pause-at-limit | The coding run detects no-progress loops from recorded facts and pauses at its limits instead of ending; the operator resumes with extra budget or a hint, or stops it. [Spec](../superpowers/specs/2026-10-17-stall-detection-and-pause-design.md) | Paused state, reason and evidence, resume/stop, in-UI notification |
+| M2 | Role profiles and a remote provider | Role = model profile + tools + prompt; a remote API adapter with file-based credentials; per-run cost accounting and a cost hard stop | Role and model per turn; cost so far |
+| M3 | Plan document and mission workflow | Versioned plan with per-step acceptance criteria and budgets; a mission workflow runs one developer step at a time; human gates for spec and plan | Mission graph, plan view, approve/reject at gates |
+| M4 | Project manager and plan reviewer | Plan sizing and splitting into a new version; agent-loop mode with recorded agent approvals; stall escalation from developer to project manager | Mode switch, plan version history, agent decisions |
+| M5 | QA and drift detection | Each step checked against its criteria and allowed files; drift fixed or escalated as a hard stop | Drift findings per step |
+| M6 | Architect | Goal to spec, feeding M3's spec gate | Spec view |
+| M7 | Benchmark acceptance | The task tracker, run as a mission, ends with a trusted evaluator pass. Unassisted (no operator hints) is the proposed criterion; budget extensions are allowed and reported | — |
+
+Notifications outside the UI (email, push, chat) are deferred; the first UI pass shows an in-page notification.
+
+## After M7
+
+These earlier Phase 1 items remain and follow M7: the local acceptance script and `liveLocalTest`, crash and deployment-continuity scenarios against real services, and the local-versus-remote comparison of the same coding task. The original Phases 3 (coded graphs and workflows) and 4 (delegation, mixed backends) are largely absorbed into M3–M6; recurring execution and checkpoint forks still need separate specifications.
+
+## History
+
+The 2026-09-20 roadmap ran four phases: a durable observable loop, interactive continuity, coded graphs, and fleets. The first slice delivered the durable coding loop, workspace, runner, evaluator, operator API/CLI, and loop console. Five live `qwen3.5:9b` runs on 2026-10-17 bounded context successfully but never passed the benchmark; each fixed failure exposed another, including a fixed-point loop a turn budget alone cannot recognize ([evidence](../evidence/local-task-tracker.md)). That led to this revision.
 
 ## Delivery discipline
 
-Implementation plans map reviewed specifications to exact files, interfaces, and test steps. Sprint records track progress. Never integrate directly into the default branch. Name database migrations for their schema purpose and verify filenames/history entries before committing.
+Implementation plans map reviewed specifications to exact files, interfaces, and test steps. Never integrate directly into the default branch. Name database migrations for their schema purpose and verify filenames/history entries before committing.

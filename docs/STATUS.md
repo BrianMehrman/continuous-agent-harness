@@ -6,6 +6,8 @@ Checked 2026-10-17 on `feat/working-memory-run-5` after working-memory Run 5. Ve
 
 ## Current milestone
 
+**Direction (owner, 2026-10-17):** the [revised roadmap](plans/roadmap.md) puts a long-running, plan-driven, multi-role harness first (milestones M1–M7), with the task-tracker benchmark as its M7 acceptance test. Next: owner review of the [M1 stall detection and pause-at-limit spec](superpowers/specs/2026-10-17-stall-detection-and-pause-design.md), then its implementation plan. Single-model prompt iteration on the benchmark is paused.
+
 The durable Spring Boot harness now has a browser console for free-text repository tasks. It shows active work, FIFO queue, history, recorded loop stages, checks, and a review diff. [PR #20](https://github.com/BrianMehrman/continuous-agent-harness/pull/20) merged it. The separate live task-tracker benchmark has been attempted twice with a local Ollama model but has not passed; see [baseline evidence](evidence/local-task-tracker.md).
 
 ## Completed on main
