@@ -79,6 +79,8 @@ class WorkingMemoryTest {
                 var reminder = lastMessage(next);
                 assertEquals("user", reminder.get("role"));
                 assertTrue(reminder.get("content").toString().contains("Your last Next: build"));
+                assertTrue(reminder.get("content").toString().contains("Your reply was cut off at the output limit"),
+                        "A capped reply must be named so the model writes less, not the same again");
                 assertTrue(reminder.get("content").toString().contains("Main.java:3: error: cannot find symbol"));
             }
             memory = next;

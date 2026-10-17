@@ -164,6 +164,7 @@ class RepositoryTaskIT {
             assertTrue(lastSeen.state().files().stream().anyMatch(f -> f.path().equals(PROBE) && f.written()));
             assertEquals("build", lastSeen.state().lastCheck().tool());
             assertTrue(lastSeen.system().contains("Progress:"), "The protocol rules reach repository runs");
+            assertTrue(lastSeen.system().contains("at most one write_file per reply"), "The output-size rule reaches repository runs");
 
             long cursor = events.get(events.size() / 2).path("sequence").asLong();
             JsonNode later = json.readTree(send("GET", "/api/work/" + workId + "/events?after=" + cursor, null).body());

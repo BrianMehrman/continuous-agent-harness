@@ -235,3 +235,82 @@ This is the third consecutive failed live run, so iteration stopped for an owner
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run3` schema were preserved.
 
+## Working-memory Run 4: one small write per reply
+
+Date: 2026-10-17 UTC. A real local Ollama run against the fresh `task-tracker-v1` starter, **not benchmark acceptance**.
+
+**Hypothesis:** the owner chose checkpoint levers 1 and 2. The protocol now asks for at most one `write_file` per reply, each file under 150 lines, and for `Progress:`/`Next:` lines at the start of each reply. A reply that ends `length` without a tool call gets a reminder saying it was cut off and to write a smaller file. Then no reply is lost to the output cap, notes appear, and the model reaches a passing `run_tests` and a submit within 40 turns.
+
+### Setup
+
+- Application commit `b7a87e8`; packaged JAR SHA-256 `398dc5b47853a0d3c4462bb36aaa8a60b5ad3663ef5a570d4c23e7d0d2a6b51c`. `./gradlew build` passed on that commit on 2026-10-17 (60 unit, 18 integration tests; the opt-in `LocalOllamaProbeIT` skipped).
+- Compose project `harness-tryout`, PostgreSQL schema `working_memory_run4`, Temporal namespace `wm-run4`, worker build selected as current `coding-harness` version for that namespace.
+- Same Ollama, `qwen3.5:9b` digest, and frozen profile `ollama-26b3aaac3a857d206307c8cd469c75951c047c00eaa7c729318d07853ac3b129` as Runs 1–3. The read-only tool probe passed.
+- Run `run-fc99fe31c77ca3567f36f626d65a5101066225f8ca5aea907b31b273ab6bd3b3`, started 20:02:16, ended `LIMIT_EXHAUSTED` at about 20:17:59. All 15 runner invocations were recorded and cleaned.
+
+### Per-turn model usage
+
+| Turn | Input | Output | Finish | Compacted | Tools |
+|---:|---:|---:|---|---:|---|
+| 1 | 1,511 | 56 | stop | 0 | list_files |
+| 2 | 1,725 | 96 | stop | 0 | read_file, read_file |
+| 3 | 2,911 | 2,717 | stop | 0 | write_file |
+| 4 | 5,644 | 58 | stop | 1 | run_tests |
+| 5 | 6,152 | 79 | stop | 2 | read_file |
+| 6 | 6,180 | 2,487 | stop | 3 | write_file |
+| 7 | 7,534 | 44 | stop | 4 | build |
+| 8 | 5,780 | 2,420 | stop | 5 | write_file |
+| 9 | 5,744 | 89 | stop | 6 | read_file |
+| 10 | 7,103 | 2,343 | stop | 7 | write_file |
+| 11 | 7,079 | 50 | stop | 8 | build |
+| 12 | 5,278 | 2,310 | stop | 9 | write_file |
+| 13 | 5,274 | 41 | stop | 10 | build |
+| 14 | 4,673 | 43 | stop | 11 | run_tests |
+| 15 | 2,691 | 72 | stop | 12 | list_files |
+| 16 | 2,385 | 1,452 | stop | 13 | write_file |
+| 17 | 3,592 | 426 | stop | 14 | write_file |
+| 18 | 4,037 | 49 | stop | 15 | build |
+| 19 | 2,946 | 42 | stop | 16 | run_tests |
+| 20 | 4,053 | 132 | stop | 17 | read_file, read_file |
+| 21 | 7,665 | 1,570 | stop | 18 | write_file |
+| 22 | 4,039 | 66 | stop | 20 | build |
+| 23 | 4,145 | 44 | stop | 20 | run_tests |
+| 24 | 3,824 | 87 | stop | 21 | read_file |
+| 25 | 5,007 | 104 | stop | 22 | read_file |
+| 26 | 6,294 | 1,559 | stop | 23 | write_file |
+| 27 | 6,282 | 120 | stop | 24 | read_file |
+| 28 | 5,576 | 82 | stop | 25 | build |
+| 29 | 4,173 | 44 | stop | 26 | run_tests |
+| 30 | 3,840 | 114 | stop | 27 | read_file |
+| 31 | 5,061 | 1,608 | stop | 28 | write_file |
+| 32 | 5,652 | 131 | stop | 29 | read_file |
+| 33 | 5,672 | 60 | stop | 30 | build |
+| 34 | 4,165 | 43 | stop | 31 | run_tests |
+| 35 | 3,819 | 81 | stop | 32 | read_file |
+| 36 | 5,022 | 102 | stop | 33 | read_file |
+| 37 | 6,309 | 2,469 | stop | 34 | write_file |
+| 38 | 7,252 | 113 | stop | 35 | read_file |
+| 39 | 6,490 | 139 | stop | 36 | build |
+| 40 | 4,272 | 45 | stop | 37 | run_tests |
+
+### Diagnosis
+
+Both levers worked; the run still did not finish. **Notes:** every reply began with `Progress:` and `Next:` lines, the first run where the model wrote them. **Output cap:** no reply ended `length` (largest output 2,717 tokens), so the cut-off reminder never fired. Input stayed between 1,511 and 7,665 tokens.
+
+Checks: `BUILD` failed at turns 7 and 11 and succeeded from turn 13. The model wrote no tests until turn 16, after `run_tests` passed with no test sources at turn 14. From turn 19 every `run_tests` (turns 19, 23, 29, 34, 40) failed in `compileTestJava`. `build` compiles only production code, so it kept succeeding.
+
+Remaining causes, from the receipts:
+
+1. **A test design error the model could not settle.** Its tests try to check CLI argument errors by calling Java methods with the wrong arguments: `tracker.list("extra")`, `tracker.complete()`, `tracker.complete("x")`. javac reported these with full context every time (`required: no arguments / found: String`). Across turns 21–39 the model alternated between "these calls are wrong" and "these are intentional tests for invalid usage" (its turn-39 note), rewrote the file three times, and the same four errors remained at turn 40.
+2. **Rereads after writes continued** at turns 9, 27, 32 and 38 (Run 2: five). The model claimed the returned hash "didn't change". It was right once: turn 26 rewrote identical content, and its write receipt shows an unchanged snapshot. It was wrong at turn 32: the turn-31 write changed the file from `5233b8f7…` to `e2796950…`. A 9B model does not compare 64-character hashes reliably, and the `next` hint added in Run 3 did not stop the rereads.
+
+### Next hypotheses
+
+- **Tool result shape:** add `"changed": true|false` to the `write_file` result, computed by the host from the old and new content hash. The model then does not have to compare hashes itself, and an identical rewrite such as turn 26 is named as such.
+- **Prompt wording:** add a general testing rule: test error handling through the command-line entry point or the error a method throws, and never call a method with arguments its signature does not accept. This is general Java advice, not evaluator material.
+- **Model:** the two remaining causes are reasoning errors, not context or output limits. A larger installed model (`qwen3.6:27b`) is the most direct lever, at the cost of speed against the 30-minute run limit.
+
+This is the fourth consecutive failed live run. Iteration stopped for an owner decision.
+
+The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run4` schema were preserved.
+
