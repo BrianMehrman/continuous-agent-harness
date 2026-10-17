@@ -116,3 +116,7 @@ A harness defect also cost one turn: the turn-19 `run_tests` call was rejected w
 Lever: **tool result shape.** If each extracted error keeps javac's following `symbol:`/`location:` lines and duplicate errors are removed, the model can fix test compile errors from the working state without reread loops, so it reaches a passing `run_tests` and submits within 40 turns. Keep the model, profile and prompt unchanged.
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run1` schema were preserved.
+
+## Working-memory Run 2: compiler error context
+
+**Hypothesis (written before the run):** Run 1's extracted errors kept only javac's `File.java:N: error:` line, so `cannot find symbol` arrived without the missing symbol, and Gradle's repeated output filled half the 20 lines with duplicates. If each extracted error carries javac's indented `symbol:`, `location:`, `required:`, `found:` and `reason:` lines (and a failing test carries its first indented assertion line), and exact duplicates are dropped, the model can fix its test compile errors from the working state without reread loops, reach a passing `run_tests`, and submit within 40 turns. Single lever: **tool result shape**. Model, profile (`qwen3.5:9b`, 16,384 context) and prompt are unchanged from Run 1.

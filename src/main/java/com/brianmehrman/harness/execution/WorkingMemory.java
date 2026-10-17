@@ -4,6 +4,7 @@ import com.brianmehrman.harness.model.ModelReply;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -18,11 +19,13 @@ import tools.jackson.databind.json.JsonMapper;
 public final class WorkingMemory {
     static final int RECENT_TURNS = 2;
     static final int ERROR_LINES = 20;
+    static final int ERROR_ENTRY_CHARS = 400;
     static final int REJECTED_KEPT = 5;
     static final int NOTE_FIELD_CHARS = 700;
     static final int READ_KEEP_CHARS = 1000;
     private static final int CHARS_PER_TOKEN = 3;
     private static final Pattern ERROR = Pattern.compile("\\.java:\\d+: error:|\\bFAILED\\b|AssertionFailedError");
+    private static final Pattern CONTEXT = Pattern.compile("^\\s+(symbol|location|required|found|reason):");
     private static final Pattern PROGRESS = Pattern.compile("(?im)^\\s*Progress:\\s*(.+)$");
     private static final Pattern NEXT = Pattern.compile("(?im)^\\s*Next:\\s*(.+)$");
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -86,11 +89,28 @@ public final class WorkingMemory {
 
     public static boolean isV2(byte[] bytes) { return JSON.readTree(bytes).path("version").asInt() == 2; }
 
+    /** Error lines with their javac/JUnit context lines, in order, without Gradle's repeated output. */
     public static List<String> errorLines(String log) {
         if (log == null) return List.of();
-        return log.lines().filter(line -> ERROR.matcher(line).find())
-                .map(line -> cap(line.strip(), 300)).limit(ERROR_LINES).toList();
+        var lines = log.lines().toList();
+        var errors = new LinkedHashSet<String>();
+        for (int i = 0; i < lines.size() && errors.size() < ERROR_LINES; i++) {
+            String line = lines.get(i);
+            if (!ERROR.matcher(line).find()) continue;
+            var entry = new StringBuilder(line.strip());
+            int next = i + 1;
+            boolean testFailure = line.contains(" > ") && line.strip().endsWith(" FAILED");
+            if (testFailure && next < lines.size() && lines.get(next).startsWith(" "))
+                entry.append(" | ").append(normalized(lines.get(next++)));
+            for (; next < lines.size() && next <= i + 6 && !ERROR.matcher(lines.get(next)).find(); next++)
+                if (CONTEXT.matcher(lines.get(next)).find()) entry.append(" | ").append(normalized(lines.get(next)));
+            errors.add(cap(entry.toString(), ERROR_ENTRY_CHARS));
+            i = next - 1;
+        }
+        return List.copyOf(errors);
     }
+
+    private static String normalized(String line) { return line.strip().replaceAll("\\s+", " "); }
 
     private static State update(State previous, int turn, ModelReply reply, List<ToolOutcome> outcomes) {
         var files = new TreeMap<String, FileState>();
@@ -291,7 +311,7 @@ public final class WorkingMemory {
         var values = new ArrayList<String>();
         if (array.isArray()) for (JsonNode item : array) {
             if (values.size() == ERROR_LINES) break;
-            values.add(cap(item.asText(""), 300));
+            values.add(cap(item.asText(""), ERROR_ENTRY_CHARS));
         }
         return List.copyOf(values);
     }
