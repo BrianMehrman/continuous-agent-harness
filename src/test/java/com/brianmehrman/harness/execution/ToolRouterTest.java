@@ -12,6 +12,7 @@ import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.workspace.SnapshotRef;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
 import com.brianmehrman.harness.workspace.WriteRequest;
+import java.util.List;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -99,7 +100,13 @@ class ToolRouterTest {
         assertTrue(result.responseJson().contains("\"exitCode\":1"));
         assertTrue(result.responseJson().contains("Compilation failed at line 12"));
         assertEquals(START, result.snapshot());
-        assertTrue(result.responseJson().contains("\"errors\":[\"src/Main.java:12: error: ';' expected\"]"));
+        var errors = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree(result.responseJson()).path("errors");
+        assertEquals(List.of(
+                "src/Main.java:12: error: cannot find symbol | symbol: method missing() | location: variable tracker of type TaskTracker",
+                "TaskTrackerTest > addsTask() FAILED | org.opentest4j.AssertionFailedError: expected: <1> but was: <2>"),
+                errors.valueStream().map(e -> e.asText()).toList(),
+                "Errors keep javac and JUnit context lines and drop Gradle's repeated output");
         assertTrue(result.responseJson().contains("\"logTail\""));
         assertFalse(result.responseJson().contains("\"log\":"));
     }
@@ -176,11 +183,24 @@ private static final class MemoryWorkspace implements WorkspaceStore {
         }
     }
 
+    private static final String CANNOT_FIND = """
+            src/Main.java:12: error: cannot find symbol
+                    tracker.missing();
+                           ^
+              symbol:   method missing()
+              location: variable tracker of type TaskTracker
+            """;
+    private static final String LOG = "Compilation failed at line 12\n" + CANNOT_FIND + CANNOT_FIND + """
+            TaskTrackerTest > addsTask() FAILED
+                org.opentest4j.AssertionFailedError: expected: <1> but was: <2>
+                    at app//TaskTrackerTest.addsTask(TaskTrackerTest.java:20)
+            """;
+
     private static final class MemoryBlobs implements BlobStore {
         @Override public String put(String mediaType, byte[] bytes) { throw new AssertionError(); }
         @Override public byte[] get(String digest) {
             assertEquals("d".repeat(64), digest);
-            return "Compilation failed at line 12\nsrc/Main.java:12: error: ';' expected\n".getBytes(StandardCharsets.UTF_8);
+            return LOG.getBytes(StandardCharsets.UTF_8);
         }
     }
 

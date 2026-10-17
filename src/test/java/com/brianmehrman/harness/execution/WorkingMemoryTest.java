@@ -13,6 +13,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 class WorkingMemoryTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final String CHECK_ERROR = "Main.java:3: error: cannot find symbol | symbol: method " +
+            "m".repeat(300) + "() | location: class Main";
     private static final SnapshotRef SNAPSHOT = new SnapshotRef("a".repeat(64));
 
     @Test void longSessionStaysWithinBudgetAndCarriesTheHandOff() {
@@ -39,7 +41,7 @@ class WorkingMemoryTest {
                 case 10 -> {
                     reply = new ModelReply(note, List.of(new ToolRequest("p", "build", "{}")), 1L, 1L, "stop");
                     outcomes = List.of(outcome(id, "build", Map.of("status", "FAILED", "exitCode", 1,
-                            "errors", List.of("Main.java:3: error: cannot find symbol"), "logTail", "...")));
+                            "errors", List.of(CHECK_ERROR), "logTail", "...")));
                 }
                 case 11 -> {
                     reply = new ModelReply(note, List.of(new ToolRequest("p", "write_file",
@@ -91,7 +93,7 @@ class WorkingMemoryTest {
         var readme = state.files().stream().filter(f -> f.path().equals("README.md")).findFirst().orElseThrow();
         assertTrue(readme.written(), "A later read keeps the written flag");
         assertEquals(12, readme.turn());
-        assertEquals(List.of("Main.java:3: error: cannot find symbol"), state.lastCheck().errors());
+        assertEquals(List.of(CHECK_ERROR), state.lastCheck().errors(), "Grouped error entries survive folding intact");
         assertEquals("run-1:turn-10:tool-1", state.lastCheck().receiptRef());
         assertTrue(state.rejected().stream().anyMatch(r -> r.detail().contains("current sha256 is")));
         assertEquals(new WorkingMemory.Note(20, "step 20", "build"), state.note());

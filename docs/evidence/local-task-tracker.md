@@ -116,3 +116,79 @@ A harness defect also cost one turn: the turn-19 `run_tests` call was rejected w
 Lever: **tool result shape.** If each extracted error keeps javac's following `symbol:`/`location:` lines and duplicate errors are removed, the model can fix test compile errors from the working state without reread loops, so it reaches a passing `run_tests` and submits within 40 turns. Keep the model, profile and prompt unchanged.
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run1` schema were preserved.
+
+## Working-memory Run 2: compiler error context
+
+**Hypothesis (written before the run):** Run 1's extracted errors kept only javac's `File.java:N: error:` line, so `cannot find symbol` arrived without the missing symbol, and Gradle's repeated output filled half the 20 lines with duplicates. If each extracted error carries javac's indented `symbol:`, `location:`, `required:`, `found:` and `reason:` lines (and a failing test carries its first indented assertion line), and exact duplicates are dropped, the model can fix its test compile errors from the working state without reread loops, reach a passing `run_tests`, and submit within 40 turns. Single lever: **tool result shape**. Model, profile (`qwen3.5:9b`, 16,384 context) and prompt are unchanged from Run 1.
+
+
+### Setup
+
+- Application commit `d7fa4a3`; packaged JAR SHA-256 `f6aafca8b560c48a52c4863c71ba62d65c6ed268bf0487ed792aaf24722af9d8`. `./gradlew build` passed on that commit on 2026-10-17 (60 unit, 18 integration tests; the opt-in `LocalOllamaProbeIT` skipped).
+- Compose project `harness-tryout`, PostgreSQL schema `working_memory_run2`, Temporal namespace `wm-run2`, worker build selected as current `coding-harness` version for that namespace.
+- Same Ollama 0.40.3, `qwen3.5:9b` digest, and frozen profile `ollama-26b3aaac3a857d206307c8cd469c75951c047c00eaa7c729318d07853ac3b129` as Run 1. The read-only tool probe passed again. All seven runner invocations recorded `cleaned=true`.
+
+| Run ID | Accepted → terminal (UTC) | Result |
+|---|---|---|
+| `run-cc008fc14373c39b39d4254a3a71021a56085bed89a476b20c3378c7afe74451` | 17:00:59 → 17:15:22 | `LIMIT_EXHAUSTED` (40 model turns) |
+
+### Per-turn model usage
+
+| Turn | Input | Output | Finish | Compacted | Tools |
+|---:|---:|---:|---|---:|---|
+| 1 | 1,462 | 42 | stop | 0 | list_files |
+| 2 | 1,622 | 88 | stop | 0 | read_file, read_file, read_file |
+| 3 | 3,143 | 1,209 | stop | 0 | write_file |
+| 4 | 4,383 | 1,336 | stop | 1 | write_file |
+| 5 | 4,642 | 51 | stop | 2 | read_file |
+| 6 | 4,485 | 1,357 | stop | 3 | write_file |
+| 7 | 4,543 | 1,719 | stop | 4 | write_file |
+| 8 | 5,292 | 23 | stop | 5 | build |
+| 9 | 4,686 | 61 | stop | 6 | read_file |
+| 10 | 4,290 | 1,343 | stop | 7 | write_file |
+| 11 | 4,994 | 22 | stop | 8 | build |
+| 12 | 3,884 | 15 | stop | 9 | run_tests |
+| 13 | 3,042 | 78 | stop | 10 | read_file |
+| 14 | 4,611 | 1,841 | stop | 11 | write_file |
+| 15 | 5,979 | 49 | stop | 12 | run_tests |
+| 16 | 5,529 | 88 | stop | 13 | read_file |
+| 17 | 5,056 | 163 | stop | 14 | read_file |
+| 18 | 5,856 | 1,527 | stop | 15 | write_file |
+| 19 | 6,025 | 72 | stop | 16 | read_file |
+| 20 | 5,563 | 122 | stop | 17 | run_tests |
+| 21 | 4,400 | 74 | stop | 18 | read_file |
+| 22 | 4,773 | 187 | stop | 19 | read_file |
+| 23 | 5,759 | 2,089 | stop | 20 | write_file |
+| 24 | 5,984 | 57 | stop | 21 | read_file |
+| 25 | 6,226 | 34 | stop | 22 | run_tests |
+| 26 | 4,788 | 60 | stop | 23 | read_file |
+| 27 | 4,419 | 49 | stop | 24 | read_file |
+| 28 | 5,689 | 1,955 | stop | 25 | write_file |
+| 29 | 6,150 | 68 | stop | 26 | read_file |
+| 30 | 6,126 | 1,851 | stop | 27 | write_file |
+| 31 | 6,022 | 65 | stop | 28 | read_file |
+| 32 | 6,062 | 1,178 | stop | 29 | write_file |
+| 33 | 5,432 | 51 | stop | 30 | read_file |
+| 34 | 5,375 | 1,013 | stop | 31 | write_file |
+| 35 | 5,261 | 50 | stop | 32 | read_file |
+| 36 | 5,303 | 113 | stop | 33 | run_tests |
+| 37 | 5,841 | 71 | stop | 34 | read_file |
+| 38 | 4,915 | 49 | stop | 35 | read_file |
+| 39 | 5,509 | 138 | stop | 36 | list_files |
+| 40 | 4,603 | 34 | stop | 37 | read_file |
+
+### Diagnosis
+
+The hypothesis partly held. The production code built at turn 11, and the model's test file stopped failing to compile: from turn 25 every `run_tests` failure was a runtime test failure, not a compile error. Input stayed between 1,462 and 6,226 tokens; no reply ended `length`; every reply called a tool. The run still used all 40 turns without submitting, so there is no evaluator verdict.
+
+Checks: `BUILD` failed at turn 8 and succeeded at turn 11; `TEST` failed at turns 12, 15, 20, 25 and 36. At the end, all 15 of the model's tests failed with the same `java.nio.file.NoSuchFileException` (for example `testAddTask` at `TaskTrackerTest.java:32`): one storage defect, reported with its context line as intended.
+
+New cause from the receipts: **the model misreads the `write_file` result.** The result returns the written file's `sha256` and a `snapshotSha256`. After writes at turns 18, 23, 28 and 30, the model said the hash "doesn't match what I expected" or "didn't change" and spent turns 19, 24, 29, 31 and 33 rereading the file it had just written. Write receipts show each write did produce a new snapshot (turn 30 rewrote identical content). The model again wrote no `Progress:`/`Next:` notes. The turn-limit cost of rereads is about one turn in eight.
+
+The `Deadline must be within 120 seconds` rejection seen in Run 1 did not recur.
+
+### Next hypothesis (Run 3)
+
+Lever: **tool result shape.** If the `write_file` result names its hash as the one to use for the next write of that path, says no reread is needed, and drops the model-irrelevant `snapshotSha256`, the model stops rereading after writes and keeps those turns for fixing its storage defect, reaching a passing `run_tests` and a submit within 40 turns. Model, profile and prompt stay unchanged. Run 3 is the third consecutive failed-run checkpoint if it fails.
+
+The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run2` schema were preserved.
