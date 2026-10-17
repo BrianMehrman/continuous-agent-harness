@@ -67,7 +67,7 @@ public final class ToolRouter {
                 default -> throw new IllegalStateException("Unexpected tool");
             };
         } catch (IllegalArgumentException | tools.jackson.core.JacksonException error) {
-            return error(call, "INVALID_ARGUMENTS");
+            return error(call, "INVALID_ARGUMENTS", "arguments are not a valid JSON object for " + name);
         }
     }
 
@@ -88,7 +88,7 @@ public final class ToolRouter {
         if (path.startsWith("/") || path.contains("..") || path.contains("\\") ||
                 path.codePoints().anyMatch(Character::isISOControl)) return error(call, "INVALID_ARGUMENTS");
         String content = workspaces.files(call.runId(), call.snapshot()).get(path);
-        if (content == null) return error(call, "FILE_NOT_FOUND");
+        if (content == null) return error(call, "FILE_NOT_FOUND", "No file at " + path + "; use list_files");
         return ok(call, call.snapshot(), Map.of("status", "OK", "content", content,
                 "sha256", SnapshotHasher.content(content)), false, false);
     }
@@ -96,9 +96,16 @@ public final class ToolRouter {
     private ToolOutcome write(ToolInvocation call, JsonNode args) {
         if (args.size() != 3 || !args.path("path").isTextual() || !args.path("expectedSha256").isTextual() ||
                 !args.path("content").isTextual()) return error(call, "INVALID_ARGUMENTS");
+        String path = args.path("path").asText();
+        String content = args.path("content").asText();
+        String current = workspaces.files(call.runId(), call.snapshot()).get(path);
+        String actual = current == null ? "absent" : SnapshotHasher.content(current);
+        if (!actual.equals(args.path("expectedSha256").asText()))
+            return error(call, "INVALID_ARGUMENTS", "expectedSha256 does not match " + path + "; current sha256 is " + actual);
         var result = workspaces.write(new WriteRequest(call.runId(), call.invocationId(), call.snapshot(),
-                args.path("path").asText(), args.path("expectedSha256").asText(), args.path("content").asText()));
-        return ok(call, result, Map.of("status", "OK", "snapshotSha256", result.sha256()), false, false);
+                path, args.path("expectedSha256").asText(), content));
+        return ok(call, result, Map.of("status", "OK", "path", path, "sha256", SnapshotHasher.content(content),
+                "snapshotSha256", result.sha256()), false, false);
     }
 
     private ToolOutcome run(ToolInvocation call, Operation operation) {
@@ -120,8 +127,9 @@ public final class ToolRouter {
         data.put("exitCode", receipt.exitCode());
         data.put("logBlobId", receipt.logBlobId());
         String log = receipt.logBlobId() == null ? "" : new String(blobs.get(receipt.logBlobId()), StandardCharsets.UTF_8);
-        boolean shortened = log.length() > 16_384;
-        data.put("log", shortened ? log.substring(0, 16_384) : log);
+        boolean shortened = log.length() > 4096;
+        data.put("errors", WorkingMemory.errorLines(log));
+        data.put("logTail", shortened ? log.substring(log.length() - 4096) : log);
         data.put("truncated", receipt.truncated() || shortened);
         data.put("artifactBlobId", receipt.artifactBlobId());
         data.put("uncertain", receipt.uncertain());
@@ -168,8 +176,14 @@ public final class ToolRouter {
                 snapshot, json.writeValueAsString(content), attemptedSubmission, passed, failureCode);
     }
 
-    private ToolOutcome error(ToolInvocation call, String code) {
+    private ToolOutcome error(ToolInvocation call, String code) { return error(call, code, null); }
+
+    private ToolOutcome error(ToolInvocation call, String code, String detail) {
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("status", "ERROR");
+        body.put("code", code);
+        if (detail != null) body.put("detail", detail);
         return new ToolOutcome(call.invocationId(), call.request().providerCallId(), call.request().name(),
-                call.snapshot(), json.writeValueAsString(Map.of("status", "ERROR", "code", code)), false, false);
+                call.snapshot(), json.writeValueAsString(body), false, false);
     }
 }

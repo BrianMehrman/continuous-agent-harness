@@ -27,7 +27,7 @@ class ToolRouterTest {
         var workspace = new MemoryWorkspace();
         var router = new ToolRouter(workspace, new NoRunner(), new NoEvaluator(), new MemoryBlobs());
         var call = new ToolInvocation("run-1", "run-1:turn-1:tool-1", START,
-                new ToolRequest("provider-1", "write_file", "{\"path\":\"README.md\",\"expectedSha256\":\"absent\",\"content\":\"hello\"}"),
+                new ToolRequest("provider-1", "write_file", "{\"path\":\"NOTES.md\",\"expectedSha256\":\"absent\",\"content\":\"hello\"}"),
                 System.currentTimeMillis() + 10_000);
 
         ToolOutcome outcome = router.route(call);
@@ -35,9 +35,19 @@ class ToolRouterTest {
         assertEquals(EDITED, outcome.snapshot());
         assertEquals("provider-1", outcome.providerCallId());
         assertTrue(outcome.responseJson().contains("\"status\":\"OK\""));
+        assertTrue(outcome.responseJson().contains("\"path\":\"NOTES.md\""));
+        assertTrue(outcome.responseJson().contains("\"sha256\":\"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\""));
         assertEquals("run-1", workspace.lastWrite.runId());
         assertEquals(START, workspace.lastWrite.parent());
         assertEquals("run-1:turn-1:tool-1", workspace.lastWrite.invocationId());
+
+        workspace.lastWrite = null;
+        ToolOutcome stale = router.route(new ToolInvocation("run-1", "run-1:turn-2:tool-1", START,
+                new ToolRequest("provider-2", "write_file", "{\"path\":\"README.md\",\"expectedSha256\":\"absent\",\"content\":\"bye\"}"),
+                System.currentTimeMillis() + 10_000));
+        assertTrue(stale.responseJson().contains("INVALID_ARGUMENTS"));
+        assertTrue(stale.responseJson().contains("current sha256 is 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
+        assertNull(workspace.lastWrite, "A stale hash must not reach the workspace");
     }
 
     @Test void unknownToolIsAResultAndNeverReachesTrustedDependencies() {
@@ -65,6 +75,10 @@ class ToolRouterTest {
         assertTrue(read.responseJson().contains("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
         assertEquals(START, read.snapshot());
         assertEquals(START, workspace.lastReadSnapshot);
+        ToolOutcome missing = router.route(new ToolInvocation("run-1", "read-2", START,
+                new ToolRequest("p-read", "read_file", "{\"path\":\"MISSING.md\"}"), System.currentTimeMillis() + 10_000));
+        assertTrue(missing.responseJson().contains("FILE_NOT_FOUND"));
+        assertTrue(missing.responseJson().contains("MISSING.md"));
     }
 
     @Test void runTestsUsesFixedRunnerOperationAndCurrentSnapshot() {
@@ -79,6 +93,9 @@ class ToolRouterTest {
         assertTrue(result.responseJson().contains("\"exitCode\":1"));
         assertTrue(result.responseJson().contains("Compilation failed at line 12"));
         assertEquals(START, result.snapshot());
+        assertTrue(result.responseJson().contains("\"errors\":[\"src/Main.java:12: error: ';' expected\"]"));
+        assertTrue(result.responseJson().contains("\"logTail\""));
+        assertFalse(result.responseJson().contains("\"log\":"));
     }
 
     @Test void rejectedSubmissionRemainsAVisibleToolResult() {
@@ -156,7 +173,7 @@ private static final class MemoryWorkspace implements WorkspaceStore {
         @Override public String put(String mediaType, byte[] bytes) { throw new AssertionError(); }
         @Override public byte[] get(String digest) {
             assertEquals("d".repeat(64), digest);
-            return "Compilation failed at line 12".getBytes(StandardCharsets.UTF_8);
+            return "Compilation failed at line 12\nsrc/Main.java:12: error: ';' expected\n".getBytes(StandardCharsets.UTF_8);
         }
     }
 
