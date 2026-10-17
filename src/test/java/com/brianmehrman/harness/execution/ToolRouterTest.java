@@ -48,6 +48,12 @@ class ToolRouterTest {
         assertTrue(stale.responseJson().contains("INVALID_ARGUMENTS"));
         assertTrue(stale.responseJson().contains("current sha256 is 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
         assertNull(workspace.lastWrite, "A stale hash must not reach the workspace");
+
+        ToolOutcome refused = router.route(new ToolInvocation("run-1", "run-1:turn-3:tool-1", START,
+                new ToolRequest("provider-3", "write_file", "{\"path\":\"build.gradle\",\"expectedSha256\":\"absent\",\"content\":\"x\"}"),
+                System.currentTimeMillis() + 10_000));
+        assertTrue(refused.responseJson().contains("Path is not writable"), refused.responseJson());
+        assertFalse(refused.responseJson().contains("JSON"), "A policy refusal must not be reported as malformed JSON");
     }
 
     @Test void unknownToolIsAResultAndNeverReachesTrustedDependencies() {
@@ -143,6 +149,7 @@ private static final class MemoryWorkspace implements WorkspaceStore {
             return files;
         }
         @Override public SnapshotRef write(WriteRequest request) {
+            if (request.path().equals("build.gradle")) throw new IllegalArgumentException("Path is not writable");
             lastWrite = request;
             return EDITED;
         }

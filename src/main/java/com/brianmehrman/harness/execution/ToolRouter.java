@@ -66,8 +66,12 @@ public final class ToolRouter {
                 case "submit" -> submit(call, args);
                 default -> throw new IllegalStateException("Unexpected tool");
             };
-        } catch (IllegalArgumentException | tools.jackson.core.JacksonException error) {
-            return error(call, "INVALID_ARGUMENTS", "arguments are not a valid JSON object for " + name);
+        } catch (tools.jackson.core.JacksonException error) {
+            return error(call, "INVALID_ARGUMENTS", "arguments are not valid JSON for " + name);
+        } catch (IllegalArgumentException error) {
+            // Host-authored policy and store messages tell the model why the call was refused.
+            return error(call, "INVALID_ARGUMENTS",
+                    error.getMessage() == null ? "invalid arguments for " + name : error.getMessage());
         }
     }
 
@@ -182,7 +186,7 @@ public final class ToolRouter {
         var body = new java.util.LinkedHashMap<String, Object>();
         body.put("status", "ERROR");
         body.put("code", code);
-        if (detail != null) body.put("detail", detail);
+        if (detail != null) body.put("detail", detail.length() <= 300 ? detail : detail.substring(0, 300));
         return new ToolOutcome(call.invocationId(), call.request().providerCallId(), call.request().name(),
                 call.snapshot(), json.writeValueAsString(body), false, false);
     }

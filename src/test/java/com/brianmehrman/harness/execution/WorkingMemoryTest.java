@@ -30,6 +30,12 @@ class WorkingMemoryTest {
                     outcomes = List.of(outcome(id, "write_file", Map.of("status", "ERROR", "code", "INVALID_ARGUMENTS",
                             "detail", "arguments are not a JSON object")));
                 }
+                case 9 -> { // a NUL the store rejects must not break elision of the recorded call
+                    reply = new ModelReply(note, List.of(new ToolRequest("p", "write_file",
+                            write("Main.java", "absent", "z".repeat(12_000) + "\u0000"))), 1L, 1L, "stop");
+                    outcomes = List.of(outcome(id, "write_file", Map.of("status", "ERROR", "code", "INVALID_ARGUMENTS",
+                            "detail", "Content must be valid UTF-8 text")));
+                }
                 case 10 -> {
                     reply = new ModelReply(note, List.of(new ToolRequest("p", "build", "{}")), 1L, 1L, "stop");
                     outcomes = List.of(outcome(id, "build", Map.of("status", "FAILED", "exitCode", 1,

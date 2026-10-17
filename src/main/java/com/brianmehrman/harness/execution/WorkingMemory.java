@@ -238,8 +238,8 @@ public final class WorkingMemory {
                 var shortened = new LinkedHashMap<String, Object>();
                 shortened.put("path", args.path("path").asText(""));
                 shortened.put("expectedSha256", args.path("expectedSha256").asText(""));
-                shortened.put("content", "[written: " + args.path("path").asText("") + ", sha256 " +
-                        SnapshotHasher.content(content) + ", " + content.length() + " chars]");
+                shortened.put("content", "[written: " + args.path("path").asText("") + hash(content) +
+                        ", " + content.length() + " chars]");
                 call.put("argumentsJson", JSON.writeValueAsString(shortened));
             }
             changed.add(call);
@@ -263,6 +263,14 @@ public final class WorkingMemory {
         var copy = new LinkedHashMap<>(message);
         copy.put("content", JSON.writeValueAsString(shortened));
         return copy;
+    }
+
+    private static String hash(String content) {
+        try {
+            return ", sha256 " + SnapshotHasher.content(content);
+        } catch (IllegalArgumentException invalidText) {
+            return ""; // the store already rejected this content; no hash identifies it
+        }
     }
 
     private static Note note(int turn, String text) {
