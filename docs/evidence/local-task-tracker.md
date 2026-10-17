@@ -192,3 +192,46 @@ The `Deadline must be within 120 seconds` rejection seen in Run 1 did not recur.
 Lever: **tool result shape.** If the `write_file` result names its hash as the one to use for the next write of that path, says no reread is needed, and drops the model-irrelevant `snapshotSha256`, the model stops rereading after writes and keeps those turns for fixing its storage defect, reaching a passing `run_tests` and a submit within 40 turns. Model, profile and prompt stay unchanged. Run 3 is the third consecutive failed-run checkpoint if it fails.
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run2` schema were preserved.
+
+## Working-memory Run 3: write result shape
+
+Date: 2026-10-17 UTC. A real local Ollama run against the fresh `task-tracker-v1` starter, **not benchmark acceptance**.
+
+**Hypothesis:** see [Run 2's next hypothesis](#next-hypothesis-run-3). The `write_file` result now returns `status`, `path`, `sha256` and `next` ("Use this sha256 as expectedSha256 for the next write_file of <path>; no read_file is needed"); `snapshotSha256` is gone.
+
+### Setup
+
+- Application commit `0e733b1`; packaged JAR SHA-256 `5b04db0bf1af6750ea0cca311039783d40c52225359d54a09b2352d9211a7124`. `./gradlew build` passed on that commit on 2026-10-17 (60 unit, 18 integration tests; the opt-in `LocalOllamaProbeIT` skipped).
+- Compose project `harness-tryout`, PostgreSQL schema `working_memory_run3`, Temporal namespace `wm-run3`, worker build selected as current `coding-harness` version for that namespace.
+- Same Ollama, `qwen3.5:9b` digest, and frozen profile `ollama-26b3aaac3a857d206307c8cd469c75951c047c00eaa7c729318d07853ac3b129` (16,384 context, 4,096 output, temperature 0) as Runs 1 and 2. The read-only tool probe passed.
+- Run `run-7194b630355a2f59e8008dc117f90ea277dd4c9315a57e0d39a908f8c4f0b028`, started 19:39:54, ended `FAILED` at 19:44:21.
+
+### Per-turn model usage
+
+| Turn | Input | Output | Finish | Compacted | Tools |
+|---:|---:|---:|---|---:|---|
+| 1 | 1,462 | 42 | stop | 0 | list_files |
+| 2 | 1,622 | 88 | stop | 0 | read_file ×3 |
+| 3 | 3,143 | 2,948 | stop | 0 | write_file |
+| 4 | 6,088 | 4,096 | length | 1 | none |
+| 5 | 4,835 | 4,096 | length | 2 | none |
+
+### Diagnosis
+
+The hypothesis was **not tested**. The new `write_file` result first reaches the model at turn 4, and the run ended before a second write. Turn 4 replied "Now let me create the test file and README:", then used the whole 4,096-token output cap without completing a tool call. Ollama returned no tool calls and `finishReason=length`. The workflow reminded the model of the protocol once; turn 5 hit the cap again with empty text, so the workflow ended `FAILED` (two replies without tools). No runner invocation, build or evaluation ran.
+
+**Nondeterminism.** Turn 3's input was identical in Runs 2 and 3 (3,143 tokens, before any result shaped by this change). Yet Run 2 wrote a 1,209-token `TaskTracker.java` and Run 3 a 2,948-token one. Temperature 0 does not make these Ollama runs repeatable. A single run cannot attribute an outcome to a one-line result change.
+
+**Output cap.** Working memory bounds input, not output. A single `write_file` (or several writes in one reply) larger than 4,096 output tokens is lost whole, and the second such reply ends the run. Runs 1 and 2 avoided this only by chance.
+
+### Checkpoint
+
+This is the third consecutive failed live run, so iteration stopped for an owner decision. Candidate levers within the agreed limits:
+
+1. **Prompt wording:** tell the model to keep each reply to one file and each file small (split tests across files), and to write `Progress:`/`Next:` notes. This addresses the output cap and the missing notes without raising limits.
+2. **Recovery from a capped reply:** when a reply ends `length` without a tool call, the protocol reminder could say the reply was cut at the output limit and to write a smaller file. This changes reminder wording, not limits or tools.
+3. **A stronger installed model** (`qwen3.6:27b` or `qwen3.5:27b`): likely better code per turn, but slower; 40 turns may not fit the 30-minute run limit.
+4. **Repeat runs:** given nondeterminism, judge each change over two or three runs rather than one.
+
+The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run3` schema were preserved.
+
