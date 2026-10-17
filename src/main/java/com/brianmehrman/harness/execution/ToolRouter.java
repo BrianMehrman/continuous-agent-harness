@@ -109,7 +109,8 @@ public final class ToolRouter {
         var result = workspaces.write(new WriteRequest(call.runId(), call.invocationId(), call.snapshot(),
                 path, args.path("expectedSha256").asText(), content));
         return ok(call, result, Map.of("status", "OK", "path", path, "sha256", SnapshotHasher.content(content),
-                "snapshotSha256", result.sha256()), false, false);
+                "next", "Use this sha256 as expectedSha256 for the next write_file of " + path + "; no read_file is needed"),
+                false, false);
     }
 
     private ToolOutcome run(ToolInvocation call, Operation operation) {

@@ -38,6 +38,9 @@ class ToolRouterTest {
         assertTrue(outcome.responseJson().contains("\"status\":\"OK\""));
         assertTrue(outcome.responseJson().contains("\"path\":\"NOTES.md\""));
         assertTrue(outcome.responseJson().contains("\"sha256\":\"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\""));
+        assertTrue(outcome.responseJson().contains("Use this sha256 as expectedSha256 for the next write_file of NOTES.md; no read_file is needed"),
+                outcome.responseJson());
+        assertFalse(outcome.responseJson().contains("snapshotSha256"), "The snapshot hash is host state, not a write precondition");
         assertEquals("run-1", workspace.lastWrite.runId());
         assertEquals(START, workspace.lastWrite.parent());
         assertEquals("run-1:turn-1:tool-1", workspace.lastWrite.invocationId());
