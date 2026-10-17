@@ -30,6 +30,15 @@ import tools.jackson.databind.json.JsonMapper;
 @Profile("worker")
 public class RunActivitiesImpl implements RunActivities {
     private static final int MAX_CONVERSATION_BYTES = 4 * 1024 * 1024;
+    private static final String CONVERSATION = "application/vnd.harness.conversation+json";
+    private static final String PROTOCOL = """
+
+            Protocol:
+            - Every reply must call at least one tool.
+            - Read a file before overwriting it, and pass the sha256 from your latest read_file or write_file result as expectedSha256 ("absent" for a new file).
+            - After writing, run build and fix the reported errors, then run run_tests; submit only after both pass.
+            - End each reply's text with two short lines: "Progress: <what is done>" and "Next: <your next step>".
+            - Older turns are compacted into a "Working state" message. Treat it as authoritative and reread files when you need their contents.""";
     private final BlobStore blobs;
     private final ProfileRevisionStore profiles;
     private final WorkspaceStore workspaces;
@@ -67,24 +76,26 @@ public class RunActivitiesImpl implements RunActivities {
     }
 
     @Override public String startConversation(RunSpec spec) {
+        var profile = profiles.get(spec.profileRevision());
+        String system;
+        String task;
         if ("repository-v1".equals(spec.benchmarkVersion())) {
-            var task = jdbc.queryForMap("select title,instructions_blob_id,base_commit from repository_work_item where run_id=?", spec.runId());
-            String instructions = new String(blobs.get((String)task.get("instructions_blob_id")), StandardCharsets.UTF_8);
-            var messages = List.of(
-                    Map.of("role", "system", "content", "Edit the frozen repository snapshot using the six provided tools. " +
-                            "Read relevant files, make a focused change, run checks, then submit a concise summary. " +
-                            "A failed check must be reported honestly. Submit means ready for human review; changes are not applied to the live repository."),
-                    Map.of("role", "user", "content", "Task: " + task.get("title") + "\nBase commit: " + task.get("base_commit") +
-                            "\nInstructions:\n" + instructions));
-            return conversationBlob(Map.of("version", 1, "messages", messages));
+            var item = jdbc.queryForMap("select title,instructions_blob_id,base_commit from repository_work_item where run_id=?", spec.runId());
+            String instructions = new String(blobs.get((String) item.get("instructions_blob_id")), StandardCharsets.UTF_8);
+            system = "Edit the frozen repository snapshot using the six provided tools. " +
+                    "Read relevant files, make a focused change, run checks, then submit a concise summary. " +
+                    "A failed check must be reported honestly. Submit means ready for human review; changes are not applied to the live repository." +
+                    PROTOCOL;
+            task = "Task: " + item.get("title") + "\nBase commit: " + item.get("base_commit") + "\nInstructions:\n" + instructions;
+        } else {
+            task = workspaces.files(spec.runId(), new SnapshotRef(spec.seedSnapshotSha256())).get("REQUIREMENTS.md");
+            if (task == null) throw new IllegalStateException("Benchmark requirements are missing");
+            system = "Implement the Java task-tracker CLI described in REQUIREMENTS.md using the six provided tools. " +
+                    "Use list_files and read_file to inspect the starter before changing it. " +
+                    "A passing submit is required; the host evaluates the submitted snapshot." + PROTOCOL;
         }
-        String requirements = workspaces.files(spec.runId(), new SnapshotRef(spec.seedSnapshotSha256()))
-                .get("REQUIREMENTS.md");
-        if (requirements == null) throw new IllegalStateException("Benchmark requirements are missing");
-        var messages = List.of(
-                Map.of("role", "system", "content", "Implement the Java task-tracker CLI using the six provided tools. A passing submit is required."),
-                Map.of("role", "user", "content", requirements));
-        return conversationBlob(Map.of("version", 1, "messages", messages));
+        var memory = WorkingMemory.start(spec.runId(), system, task, profile.contextTokens(), profile.outputTokens());
+        return storeConversation(WorkingMemory.write(memory));
     }
 
     @Override public ModelReply callModel(ModelCall call) {
@@ -110,7 +121,16 @@ public class RunActivitiesImpl implements RunActivities {
                     "MODEL_ATTEMPT_UNKNOWN");
         }
         try (var attempt = telemetry.modelAttempt(call)) {
-            ModelReply reply = adapters.forProfile(profiles.get(call.profileRevision())).call(call);
+            ModelCall dispatched = call;
+            byte[] conversation = blobs.get(call.conversationBlobId());
+            if (WorkingMemory.isV2(conversation)) {
+                var memory = WorkingMemory.read(conversation);
+                if (!WorkingMemory.fits(memory)) throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
+                String rendered = blobs.put(CONVERSATION, json.writeValueAsBytes(WorkingMemory.render(memory)));
+                dispatched = new ModelCall(call.runId(), call.invocationId(), call.attempt(),
+                        call.profileRevision(), rendered, call.deadlineEpochMillis());
+            }
+            ModelReply reply = adapters.forProfile(profiles.get(call.profileRevision())).call(dispatched);
             String responseBlob = blobs.put("application/vnd.harness.model-reply+json", json.writeValueAsBytes(reply));
             if (!attempts.complete(lease, responseBlob))
                 throw ApplicationFailure.newNonRetryableFailure("Model attempt lost ownership", "MODEL_ATTEMPT_UNKNOWN");
@@ -137,7 +157,10 @@ public class RunActivitiesImpl implements RunActivities {
 
     @Override public String appendConversation(String previousBlobId, ModelReply reply,
             List<ToolOutcome> outcomes) {
-        Map<String, Object> root = json.readValue(blobs.get(previousBlobId), new TypeReference<>() {});
+        byte[] previous = blobs.get(previousBlobId);
+        if (WorkingMemory.isV2(previous))
+            return storeConversation(WorkingMemory.write(WorkingMemory.fold(WorkingMemory.read(previous), reply, outcomes)));
+        Map<String, Object> root = json.readValue(previous, new TypeReference<>() {});
         if (!Integer.valueOf(1).equals(root.get("version")) || !(root.get("messages") instanceof List<?> old))
             throw new IllegalArgumentException("Invalid conversation");
         var messages = new ArrayList<Object>(old);
@@ -197,10 +220,11 @@ public class RunActivitiesImpl implements RunActivities {
         return runner.stopConfirmed(invocationId);
     }
 
-    private String conversationBlob(Object value) {
-        byte[] data = json.writeValueAsBytes(value);
+    private String conversationBlob(Object value) { return storeConversation(json.writeValueAsBytes(value)); }
+
+    private String storeConversation(byte[] data) {
         if (data.length > MAX_CONVERSATION_BYTES)
             throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
-        return blobs.put("application/vnd.harness.conversation+json", data);
+        return blobs.put(CONVERSATION, data);
     }
 }
