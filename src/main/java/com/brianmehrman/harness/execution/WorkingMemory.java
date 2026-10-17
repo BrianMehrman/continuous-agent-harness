@@ -179,12 +179,15 @@ public final class WorkingMemory {
             tool.put("content", outcome.responseJson());
             messages.add(tool);
         }
-        if (outcomes.isEmpty()) messages.add(message("user", reminder(state)));
+        if (outcomes.isEmpty()) messages.add(message("user", reminder(state, reply)));
         return messages;
     }
 
-    private static String reminder(State state) {
+    private static String reminder(State state, ModelReply reply) {
         var text = new StringBuilder("Use the provided tools and submit the immutable snapshot. Text alone cannot complete this task.");
+        if ("length".equals(reply.finishReason()))
+            text.append("\nYour reply was cut off at the output limit before a tool call completed, so nothing was written. " +
+                    "Write one smaller file now; split a large class or test suite into several files over several replies.");
         if (state.note() != null && state.note().next() != null)
             text.append("\nYour last Next: ").append(state.note().next());
         if (state.lastCheck() != null && !state.lastCheck().errors().isEmpty()) {
