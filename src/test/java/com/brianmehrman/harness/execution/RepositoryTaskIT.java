@@ -150,6 +150,21 @@ class RepositoryTaskIT {
             assertEquals(4, events.stream().filter(e -> "MODEL_RECORDED".equals(e.path("type").asText())).count());
             assertEquals("review", events.getLast().path("stage").asText());
 
+            var requests = jdbc.queryForList("select request_blob_id from model_attempt where run_id=? " +
+                    "order by invocation_id, attempt", String.class, workId);
+            assertEquals(4, requests.size());
+            WorkingMemory.Conversation lastSeen = null;
+            for (String request : requests) {
+                String conversation = json.readTree(blobs.get(request)).path("conversationBlobId").asText();
+                lastSeen = WorkingMemory.read(blobs.get(conversation));
+                assertEquals(2, lastSeen.version());
+                assertTrue(WorkingMemory.fits(lastSeen), "Every model call must stay within the frozen budget");
+            }
+            assertEquals(3, lastSeen.state().turn());
+            assertTrue(lastSeen.state().files().stream().anyMatch(f -> f.path().equals(PROBE) && f.written()));
+            assertEquals("build", lastSeen.state().lastCheck().tool());
+            assertTrue(lastSeen.system().contains("Progress:"), "The protocol rules reach repository runs");
+
             long cursor = events.get(events.size() / 2).path("sequence").asLong();
             JsonNode later = json.readTree(send("GET", "/api/work/" + workId + "/events?after=" + cursor, null).body());
             assertEquals(events.size() - cursor, later.size());
