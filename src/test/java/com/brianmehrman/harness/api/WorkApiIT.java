@@ -154,6 +154,24 @@ class WorkApiIT {
         assertTrue(admission.releaseAfterTerminalTransition(first));
         assertTrue(admission.acquire(second));
         assertTrue(admission.releaseAfterTerminalTransition(second));
+
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", second);
+
+        // A resumed run rejoins the queue by its resume time, behind work that queued earlier.
+        String thirdCommand = "work-order-" + UUID.randomUUID();
+        String third = create(thirdCommand, profile);
+        jdbc.update("update run_command set delivered_at=now() where command_id=?", thirdCommand);
+        jdbc.update("update run_projection set status='QUEUED' where run_id=?", first);
+        jdbc.update("insert into run_command(command_id,run_id,kind,payload_sha256,payload_json,delivered_at,outcome_json) " +
+                        "values (?,?,'RESUME',?,'{}'::jsonb,now(),?::jsonb)",
+                "resume-" + UUID.randomUUID(), first, "0".repeat(64),
+                "{\"runId\":\"" + first + "\",\"commandId\":\"x\",\"deliveryStatus\":\"APPLIED\"}");
+        assertFalse(admission.acquire(first), "The resumed run waits behind work queued before its resume");
+        assertTrue(admission.acquire(third));
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", third);
+        assertTrue(admission.releaseAfterTerminalTransition(third));
+        assertTrue(admission.acquire(first));
+        assertTrue(admission.releaseAfterTerminalTransition(first));
     }
 
     @Test void repositoryEditProducesIsolatedReviewDiffWithFailedCheckVisible() throws Exception {

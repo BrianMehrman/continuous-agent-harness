@@ -23,7 +23,9 @@ public class RunAdmissionStore {
                         "join run_command c on c.command_id=r.command_id " +
                         "join run_projection p on p.run_id=r.run_id " +
                         "where c.delivered_at is not null and p.status='QUEUED' " +
-                        "order by c.accepted_at,c.command_id limit 1", String.class);
+                        "order by coalesce((select max(rc.accepted_at) from run_command rc where rc.run_id=r.run_id " +
+                        "and rc.kind='RESUME' and rc.outcome_json->>'deliveryStatus'='APPLIED'), c.accepted_at)," +
+                        "c.command_id limit 1", String.class);
         if (oldest.isEmpty() || !runId.equals(oldest.getFirst())) return false;
         jdbc.update("insert into run_admission(slot_id,run_id) values (1,?) on conflict do nothing", runId);
         return runId.equals(jdbc.queryForObject("select run_id from run_admission where slot_id=1",
