@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Profile, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
 
-const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Terminal'];
-const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW']);
+const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Paused', 'Terminal'];
+const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW', 'STALLED']);
 const freshId = () => crypto.randomUUID();
 const short = (value: string) => value.slice(0, 12);
 
@@ -19,7 +19,7 @@ function WorkRow({ work, select, now, active = false }: { work: WorkSummary; sel
 }
 
 export default function App() {
-  const [list, setList] = useState<WorkList>({ active: null, benchmarkActive: null, queue: [], history: [] });
+  const [list, setList] = useState<WorkList>({ active: null, benchmarkActive: null, queue: [], history: [], paused: [], pausedRuns: [] });
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkDetail | null>(null);
@@ -36,6 +36,8 @@ export default function App() {
   const selectedRef = useRef<string | null>(null);
   const cursor = useRef(0);
   const pendingCancel = useRef<{ id: string; version: number } | null>(null);
+  const [extra, setExtra] = useState({ turns: 20, tools: 50, minutes: 15, hint: '' });
+  const pendingControl = useRef<{ id: string; version: number; kind: string } | null>(null);
 
   useEffect(() => {
     api.profiles().then(items => { setProfiles(items); setProfile(current => current || items.find(p => p.toolRoundTripVerified)?.id || ''); }).catch(e => setError(String(e)));
@@ -49,6 +51,7 @@ export default function App() {
 
   function choose(id: string) {
     pendingCancel.current = null;
+    pendingControl.current = null;
     selectedRef.current = id;
     cursor.current = 0;
     setEvents([]);
@@ -114,7 +117,25 @@ export default function App() {
     finally { setBusy(false); }
   }
 
-  const currentStage = detail?.status === 'QUEUED' ? 0 : detail?.status === 'READY_FOR_REVIEW' ? 5 :
+  async function control(kind: 'resume' | 'stop') {
+    if (!detail || busy) return;
+    setBusy(true);
+    try {
+      const same = pendingControl.current?.version === detail.version && pendingControl.current.kind === kind;
+      const commandId = same ? pendingControl.current!.id : freshId();
+      pendingControl.current = { id: commandId, version: detail.version, kind };
+      if (kind === 'resume') await api.resume(detail.workId, { commandId, expectedVersion: detail.version, extraTurns: extra.turns, extraToolCalls: extra.tools, extraMinutes: extra.minutes, ...(extra.hint.trim() ? { hint: extra.hint.trim() } : {}) });
+      else await api.stop(detail.workId, commandId, detail.version);
+      pendingControl.current = null;
+      setExtra({ turns: 20, tools: 50, minutes: 15, hint: '' });
+      await refresh(detail.workId);
+    } catch (failure) { setError(`${kind === 'resume' ? 'Resume' : 'Stop'} failed: ${String(failure)}`); }
+    finally { setBusy(false); }
+  }
+  const resume = (event: React.FormEvent) => { event.preventDefault(); void control('resume'); };
+  const stop = () => void control('stop');
+
+  const currentStage = detail?.status === 'QUEUED' ? 0 : detail?.status === 'PAUSED' ? stages.indexOf('Paused') : detail?.status === 'READY_FOR_REVIEW' ? 5 :
     Math.max(0, stages.findIndex(stage => stage.toLowerCase() === events.at(-1)?.stage));
 
   return <div className="shell">
@@ -122,6 +143,11 @@ export default function App() {
     <main>
       <div className="intro"><div><span className="eyebrow">WORKSPACE / REPOSITORY</span><h1>Work queue</h1><p>Give the local agent a repository task. Changes stay in isolated snapshots until you review the diff.</p></div><div className="count"><strong>{list.queue.length}</strong><span>waiting</span></div></div>
       {error && <div className="alert" role="alert">{error}</div>}
+      {(list.paused.length + list.pausedRuns.length) > 0 && <div className="alert paused-banner" role="status">
+        {list.paused.length + list.pausedRuns.length} paused · waiting for you:{' '}
+        {list.paused.map(item => <button key={item.workId} className="link" onClick={() => choose(item.workId)}>{item.title}</button>)}
+        {list.pausedRuns.map(run => <a key={run.runId} href={`/api/runs/${encodeURIComponent(run.runId)}`}>benchmark {short(run.runId)} ↗</a>)}
+      </div>}
       <div className="columns">
         <div className="left">
           <section className="panel"><div className="panel-heading"><h2>Add work</h2><span>FREE TEXT</span></div><form onSubmit={add}>
@@ -132,16 +158,31 @@ export default function App() {
             <div className="form-footer"><span>Current main: <code title={base}>{base || 'unavailable'}</code><br/>Rechecked when submitted</span><button className="primary" disabled={busy || !profile || !base}>{busy ? 'Submitting…' : 'Add to queue →'}</button></div>
           </form></section>
           <section className="panel"><div className="panel-heading"><h2>Working now</h2><span>{list.active || list.benchmarkActive ? '1 / 1 SLOT' : 'IDLE'}</span></div>{list.active ? <WorkRow work={list.active} select={choose} now={now} active/> : list.benchmarkActive ? <p className="instructions">Benchmark run <a href={`/api/runs/${encodeURIComponent(list.benchmarkActive.runId)}`}>{short(list.benchmarkActive.runId)} ↗</a> · {list.benchmarkActive.status.replaceAll('_', ' ')}<br/>Running {elapsed(list.benchmarkActive.startedAt, now)} · updated {elapsed(list.benchmarkActive.updatedAt, now)} ago</p> : <p className="empty">No task currently holds the execution slot.</p>}</section>
+          <section className="panel"><div className="panel-heading"><h2>Paused</h2><span>{list.paused.length} WAITING</span></div>{list.paused.length ? list.paused.map(item => <WorkRow key={item.workId} work={item} select={choose} now={now}/>) : <p className="empty">No paused work.</p>}</section>
           <section className="panel"><div className="panel-heading"><h2>Queue</h2><span>{list.queue.length} WAITING</span></div>{list.queue.length ? list.queue.map(item => <WorkRow key={item.workId} work={item} select={choose} now={now}/>) : <p className="empty">Nothing waiting. Add a task above to get started.</p>}</section>
           <section className="panel"><div className="panel-heading"><h2>History</h2><span>RECENT</span></div>{list.history.length ? list.history.map(item => <WorkRow key={item.workId} work={item} select={choose} now={now}/>) : <p className="empty">Finished work will appear here.</p>}</section>
         </div>
         <aside className="panel detail"><div className="panel-heading"><h2>Task detail</h2><span>{detail ? short(detail.workId) : 'SELECT A TASK'}</span></div>
           {detail && selected === detail.workId ? <>
             <h3>{detail.title}</h3><div className="status-line"><span className="status-pill">{detail.status.replaceAll('_',' ')}</span>{detail.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
+            {detail.status === 'PAUSED' && detail.pause && <section className="pause-panel" aria-label="Paused run">
+              <h4>Paused · {detail.pause.reason.replaceAll('_', ' ').toLowerCase()}{detail.pause.signal ? ` (${detail.pause.signal.replaceAll('_', ' ').toLowerCase()})` : ''}</h4>
+              {detail.pause.evidence.length > 0 && <ol className="events">{detail.pause.evidence.map((line, i) => <li key={i}>{line}</li>)}</ol>}
+              {detail.pause.note && <p className="instructions">{detail.pause.note}</p>}
+              <p className="instructions">Turns {detail.pause.turnsUsed}/{detail.pause.turnsGranted} · tool calls {detail.pause.toolCallsUsed}/{detail.pause.toolCallsGranted} · active {Math.round(detail.pause.activeMillisUsed / 60000)}/{Math.round(detail.pause.activeMillisGranted / 60000)} min{detail.pause.waitUntil ? ` · waits until ${new Date(detail.pause.waitUntil).toLocaleString()}` : ''}</p>
+              <form onSubmit={resume}>
+                <label>Extra turns (max 40)<input type="number" min={0} max={40} value={extra.turns} onChange={e => setExtra({ ...extra, turns: Number(e.target.value) })} /></label>
+                <label>Extra tool calls (max 100)<input type="number" min={0} max={100} value={extra.tools} onChange={e => setExtra({ ...extra, tools: Number(e.target.value) })} /></label>
+                <label>Extra minutes (max 30)<input type="number" min={0} max={30} value={extra.minutes} onChange={e => setExtra({ ...extra, minutes: Number(e.target.value) })} /></label>
+                <label>Hint for the agent (optional; marks the run assisted)<textarea maxLength={2000} rows={3} value={extra.hint} onChange={e => setExtra({ ...extra, hint: e.target.value })} /></label>
+                <div className="form-footer"><button className="primary" disabled={busy}>Resume</button><button type="button" className="secondary" onClick={stop} disabled={busy}>Stop</button></div>
+              </form>
+            </section>}
             <dl><dt>Base commit</dt><dd>{detail.baseCommit}</dd><dt>Model profile</dt><dd>{detail.profileRevision}</dd><dt>Seed snapshot</dt><dd title={detail.seedSnapshotSha256}>{short(detail.seedSnapshotSha256)}</dd></dl>
             <h4>Loop</h4><div className="loop" role="list" aria-label="Coding loop">{stages.map((stage, index) => <div role="listitem" key={stage} className={`stage ${index === currentStage ? 'current' : ''}`}><span>{String(index + 1).padStart(2,'0')}</span>{stage}</div>)}</div>
             <h4>Activity</h4>{events.length ? <ol className="events">{events.map(e => <li key={e.sequence}><span>{e.sequence}</span>{e.summary}</li>)}</ol> : <p className="empty">Waiting for the first durable event.</p>}
             <h4>Checks</h4>{detail.checks.length > 0 ? <ol className="events">{detail.checks.map(check => <li key={check.invocationId}>{check.operation.toLowerCase()} · {check.status.toLowerCase()}{check.exitCode !== null ? ` · exit ${check.exitCode}` : ''}{check.uncertain ? ' · uncertain' : ''}{check.forFinalSnapshot ? '' : ' · earlier snapshot'}{check.logBlobId && <> · <a href={`/api/runs/${encodeURIComponent(detail.workId)}/artifacts/${check.logBlobId}`}>log ↗</a></>}</li>)}</ol> : <p className="empty">No host check receipts recorded.</p>}
+            {detail.resumes.length > 0 && <><h4>Resume history {detail.label && <span className="status-pill">{detail.label}</span>}</h4><ol className="events">{detail.resumes.map(r => <li key={r.commandId}>+{r.extraTurns} turns · +{r.extraToolCalls} tool calls · +{r.extraMinutes} min{r.hint ? ` · hint: ${r.hint}` : ''}</li>)}</ol></>}
             {terminal.has(detail.status) && !detail.checks.some(check => check.forFinalSnapshot) && <p className="warning">The final snapshot has no host check.</p>}
             {detail.modelSummary && <><h4>Model summary</h4><p className="instructions">{detail.modelSummary}</p></>}
             {detail.cancellations.length > 0 && <><h4>Cancellation</h4><p className="instructions">{detail.cancellations.at(-1)?.deliveryStatus.toLowerCase()} · {detail.cancellations.at(-1)?.applicationOutcome}</p></>}
