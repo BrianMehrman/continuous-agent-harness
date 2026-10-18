@@ -4,6 +4,9 @@ import com.brianmehrman.harness.runs.RepositoryWorkService;
 import com.brianmehrman.harness.runs.RepositorySourceImporter;
 import com.brianmehrman.harness.runs.RunCommandService;
 import com.brianmehrman.harness.execution.CancelCommand;
+import com.brianmehrman.harness.execution.ResumeCommand;
+import com.brianmehrman.harness.execution.StopCommand;
+import com.brianmehrman.harness.execution.CommandResult;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.context.annotation.Profile;
@@ -82,6 +85,36 @@ public class WorkController {
         catch (IllegalArgumentException invalid) {
             if (invalid.getMessage().startsWith("Unknown")) throw new RunController.Missing(invalid.getMessage());
             if (invalid.getMessage().startsWith("Expected") || invalid.getMessage().contains("reused with different"))
+                throw new RunController.Conflict(invalid.getMessage());
+            throw new RunController.BadInput(invalid.getMessage());
+        }
+    }
+
+    @PostMapping(value = "/api/work/{workId}/resume", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> resume(@PathVariable String workId, @RequestBody String body) {
+        ResumeCommand command = RunController.resumeCommand(body);
+        return pausedCommand(workId, command.commandId(), () -> commands.resume(workId, command));
+    }
+
+    @PostMapping(value = "/api/work/{workId}/stop", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> stop(@PathVariable String workId, @RequestBody String body) {
+        StopCommand command = RunController.stopCommand(body);
+        return pausedCommand(workId, command.commandId(), () -> commands.stop(workId, command));
+    }
+
+    private ResponseEntity<?> pausedCommand(String workId, String commandId,
+            java.util.function.Supplier<CommandResult> accept) {
+        try {
+            if (!"DELIVERED".equals(work.detail(workId).get("deliveryStatus")))
+                throw new RunController.Conflict("Run is not paused");
+            var accepted = accept.get();
+            return ResponseEntity.accepted().body(new RepositoryWorkService.WorkAccepted(
+                    workId, commandId, accepted.deliveryStatus()));
+        }
+        catch (IllegalArgumentException invalid) {
+            if (invalid.getMessage().startsWith("Unknown")) throw new RunController.Missing(invalid.getMessage());
+            if (invalid.getMessage().startsWith("Expected") || invalid.getMessage().startsWith("Run is not paused") ||
+                    invalid.getMessage().contains("reused with different"))
                 throw new RunController.Conflict(invalid.getMessage());
             throw new RunController.BadInput(invalid.getMessage());
         }

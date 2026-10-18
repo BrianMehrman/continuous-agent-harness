@@ -103,12 +103,14 @@ public class RepositoryWorkService {
                 .stream().findFirst().orElse(null);
         WorkSummary active = null;
         List<WorkSummary> queue = new ArrayList<>();
+        List<WorkSummary> paused = new ArrayList<>();
         List<WorkSummary> history = new ArrayList<>();
         for (WorkSummary row : rows) {
             if (row.workId().equals(activeId)) active = row;
             else if (row.status().equals("QUEUED")) queue.add(new WorkSummary(row.workId(), row.title(),
                     row.baseCommit(), row.profileRevision(), row.status(), row.version(),
                     row.deliveryStatus(), row.createdAt(), row.updatedAt(), row.startedAt(), queue.size() + 1));
+            else if (row.status().equals("PAUSED")) paused.add(row);
             else history.add(row);
         }
         var result = new LinkedHashMap<String, Object>();
@@ -125,6 +127,12 @@ public class RepositoryWorkService {
         }
         result.put("benchmarkActive", benchmarkActive);
         result.put("queue", queue);
+        result.put("paused", paused);
+        result.put("pausedRuns", jdbc.query("select r.run_id,p.status,p.updated_at from run_request r " +
+                        "join run_projection p on p.run_id=r.run_id where r.kind='BENCHMARK' and p.status='PAUSED' " +
+                        "order by p.updated_at",
+                (rs, n) -> Map.of("runId", rs.getString(1), "status", rs.getString(2),
+                        "updatedAt", rs.getTimestamp(3).toInstant().toString())));
         result.put("history", history);
         return result;
     }
@@ -185,6 +193,7 @@ public class RepositoryWorkService {
                         "from run_command where run_id=? and kind='CANCEL' order by accepted_at",
                 (rs,n) -> Map.of("commandId",rs.getString(1),"deliveryStatus",rs.getBoolean(2) ? "DELIVERED" : "ACCEPTED",
                         "applicationOutcome",rs.getString(3) == null ? "PENDING" : rs.getString(3)), runId));
+        result.putAll(PauseHistory.read(jdbc, blobs, runId, (String)row[5]));
         return result;
     }
 
@@ -201,7 +210,11 @@ public class RepositoryWorkService {
                     String status = payload.path("status").asText();
                     String stage = payload.path("stage").asText("terminal");
                     if ("STATE_CHANGED".equals(type)) stage = "QUEUED".equals(status) ? "queued" :
-                            "RUNNING".equals(status) ? "model" : "READY_FOR_REVIEW".equals(status) ? "review" : "terminal";
+                            "RUNNING".equals(status) ? "model" : "READY_FOR_REVIEW".equals(status) ? "review" :
+                            "PAUSED".equals(status) ? "paused" : "terminal";
+                    if ("PAUSED".equals(type)) stage = "paused";
+                    else if ("RESUMED".equals(type) || "NUDGED".equals(type) || "STOPPED".equals(type))
+                        stage = payload.path("stage").asText("model");
                     String summary = payload.path("summary").asText("STATE_CHANGED".equals(type) ?
                             status.replace('_', ' ').toLowerCase() : type.replace('_', ' ').toLowerCase());
                     return new WorkEvent(rs.getLong(1), type, stage, summary,

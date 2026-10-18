@@ -2,6 +2,9 @@ package com.brianmehrman.harness.api;
 
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.Limits;
+import com.brianmehrman.harness.execution.ResumeCommand;
+import com.brianmehrman.harness.execution.StopCommand;
+import com.brianmehrman.harness.execution.CommandResult;
 import com.brianmehrman.harness.runs.RunCommandService;
 import com.brianmehrman.harness.runs.RunQueryService;
 import com.brianmehrman.harness.runs.StartCommand;
@@ -25,6 +28,8 @@ import tools.jackson.databind.json.JsonMapper;
 public class RunController {
     private static final Set<String> START = Set.of("commandId", "benchmarkVersion", "profileRevision", "limits");
     private static final Set<String> CANCEL = Set.of("commandId", "expectedVersion");
+    private static final Set<String> RESUME_REQUIRED = Set.of("commandId", "expectedVersion");
+    private static final Set<String> RESUME_OPTIONAL = Set.of("extraTurns", "extraToolCalls", "extraMinutes", "hint");
     private static final Set<String> LIMITS = Set.of("modelTurns", "toolCalls", "modelAttempts",
             "perTurnModelAttempts", "runnerAttempts", "modelAttemptMillis", "buildTestMillis",
             "evaluationMillis", "fileOperationMillis", "runMillis");
@@ -87,6 +92,45 @@ public class RunController {
         } catch (IllegalArgumentException invalid) { throw classify(invalid); }
     }
 
+    @PostMapping(value = "/api/runs/{runId}/resume", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> resume(@PathVariable String runId, @RequestBody String body) {
+        ResumeCommand command = resumeCommand(body);
+        return accepted(runId, command.commandId(), command.expectedVersion(), () -> commands.resume(runId, command));
+    }
+
+    @PostMapping(value = "/api/runs/{runId}/stop", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> stop(@PathVariable String runId, @RequestBody String body) {
+        StopCommand command = stopCommand(body);
+        return accepted(runId, command.commandId(), command.expectedVersion(), () -> commands.stop(runId, command));
+    }
+
+    static StopCommand stopCommand(String body) {
+        Map<String, Object> data = object(body, CANCEL);
+        try { return new StopCommand(string(data, "commandId"), version(data)); }
+        catch (IllegalArgumentException invalid) { throw new BadInput(invalid.getMessage()); }
+    }
+
+    static ResumeCommand resumeCommand(String body) {
+        Map<String, Object> data = object(body, RESUME_REQUIRED, RESUME_OPTIONAL);
+        try {
+            return new ResumeCommand(string(data, "commandId"), version(data), count(data, "extraTurns"),
+                    count(data, "extraToolCalls"), count(data, "extraMinutes"),
+                    data.get("hint") == null ? null : string(data, "hint"));
+        } catch (IllegalArgumentException invalid) { throw new BadInput(invalid.getMessage()); }
+    }
+
+    private ResponseEntity<?> accepted(String runId, String commandId, long expectedVersion,
+            java.util.function.Supplier<CommandResult> accept) {
+        try {
+            if (!queries.commandExists(runId, commandId) && expectedVersion != queries.currentVersion(runId))
+                throw new Conflict("Expected version differs from current run version");
+            var accepted = accept.get();
+            var state = queries.command(accepted.runId(), accepted.commandId());
+            return ResponseEntity.accepted().body(new CommandResponse(accepted.runId(), accepted.commandId(),
+                    state.deliveryStatus(), state.applicationOutcome()));
+        } catch (IllegalArgumentException invalid) { throw classify(invalid); }
+    }
+
     @GetMapping("/api/runs/{runId}/artifacts/{digest}")
     public ResponseEntity<byte[]> artifact(@PathVariable String runId, @PathVariable String digest) {
         try {
@@ -107,6 +151,30 @@ public class RunController {
         catch (RuntimeException invalid) { throw new BadInput("Malformed JSON object"); }
     }
 
+    static Map<String, Object> object(String body, Set<String> required, Set<String> optional) {
+        try {
+            Map<String, Object> data = JsonMapper.builder().build().readValue(body, new TypeReference<>() {});
+            if (data == null || !data.keySet().containsAll(required) ||
+                    !data.keySet().stream().allMatch(k -> required.contains(k) || optional.contains(k)))
+                throw new BadInput("Unexpected or missing fields");
+            return data;
+        } catch (BadInput invalid) { throw invalid; }
+        catch (RuntimeException invalid) { throw new BadInput("Malformed JSON object"); }
+    }
+
+    static long version(Map<String, Object> data) {
+        if (!(data.get("expectedVersion") instanceof Number number) ||
+                !(number instanceof Integer || number instanceof Long)) throw new BadInput("Invalid expectedVersion");
+        return number.longValue();
+    }
+
+    static int count(Map<String, Object> data, String field) {
+        Object value = data.get(field);
+        if (value == null) return 0;
+        if (!(value instanceof Integer number) || number < 0) throw new BadInput("Invalid " + field);
+        return number;
+    }
+
     static String string(Map<String, Object> data, String field) {
         if (!(data.get(field) instanceof String value) || value.isBlank()) throw new BadInput("Invalid " + field);
         return value;
@@ -115,6 +183,7 @@ public class RunController {
     static RuntimeException classify(IllegalArgumentException invalid) {
         String message = invalid.getMessage() == null ? "Invalid request" : invalid.getMessage();
         if (message.startsWith("Unknown run") || message.startsWith("Unknown run artifact")) return new Missing(message);
+        if (message.startsWith("Run is not paused")) return new Conflict(message);
         if (message.contains("reused with different input")) return new Conflict(message);
         return new BadInput(message);
     }
