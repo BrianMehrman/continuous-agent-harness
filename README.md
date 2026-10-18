@@ -49,8 +49,8 @@ The specifications describe the broader intended behavior; ADRs marked **Propose
 | [Implementation stack](docs/specs/implementation-stack.md) | Recommended technologies, responsibilities, and alternatives |
 | [Phase 1 specification](docs/specs/phase-1-observable-loop.md) | First working slice and acceptance criteria |
 | [Reference research](docs/specs/reference-research.md) | Findings from existing projects and framework documentation |
-| [Roadmap](docs/plans/roadmap.md) | Phases, dependencies, and completion gates |
-| [Sprint 01](docs/sprints/01-observable-loop.md) | Proposed first delivery scope |
+| [Roadmap](docs/plans/roadmap.md) | Milestones M1–M7 and the sprint table |
+| [Sprints](docs/sprints/) | Grouped delivery scope; [Sprint 03](docs/sprints/03-role-profiles-and-remote-provider.md) (M2) is current |
 | [Architectural decisions](docs/adr/README.md) | Major choices, alternatives, and consequences |
 
 `docs/specs/` holds research and specifications; `docs/plans/` holds roadmaps and implementation plans; `docs/sprints/` tracks scoped delivery; `docs/adr/` records significant architectural decisions. Implementation plans follow specification review and stack selection.

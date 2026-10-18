@@ -12,7 +12,7 @@ This project is a Java 21 / Spring Boot harness for durable AI coding runs. The 
 
 ## Status, plans, and evidence
 
-- Record project status only in [docs/STATUS.md](docs/STATUS.md). Other files link to it instead of repeating task progress.
+- Record project status in [docs/STATUS.md](docs/STATUS.md) (the handoff), the active sprint file in `docs/sprints/` (which work packages have merged), and the roadmap's sprint table (sprint state). Other files link to these instead of repeating progress. Mark a sprint work package done only after its PR merged.
 - Plans and specs describe intended behavior. An unchecked plan item, or a spec requirement without code and a test, is not implemented. Verify against the code and test results before repeating a claim.
 - A pass/fail claim names the command, date, and commit it ran against. A code change after that run invalidates the claim until the command is rerun.
 
