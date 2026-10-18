@@ -94,7 +94,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             if (reply.tools().isEmpty()) {
                 if (remindedOfProtocol) return terminal("FAILED");
                 remindedOfProtocol = true;
-                conversation = activities.appendConversation(conversation, reply, java.util.List.of());
+                conversation = activities.appendConversation(conversation, reply, java.util.List.of()).blobId();
                 continue;
             }
             var outcomes = new ArrayList<ToolOutcome>();
@@ -138,7 +138,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 if (outcome.attemptedSubmission() && outcome.passed())
                     return terminal("repository-v1".equals(input.benchmarkVersion()) ? "READY_FOR_REVIEW" : "SUCCEEDED");
             }
-            conversation = activities.appendConversation(conversation, reply, outcomes);
+            conversation = activities.appendConversation(conversation, reply, outcomes).blobId();
         }
         return terminal("LIMIT_EXHAUSTED");
     }

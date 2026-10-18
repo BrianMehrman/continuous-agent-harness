@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.CodingWorkflowImpl;
 import com.brianmehrman.harness.execution.UnversionedCodingWorkflow;
+import com.brianmehrman.harness.execution.ConversationStep;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.RunActivities;
 import com.brianmehrman.harness.execution.RunSpec;
@@ -139,8 +140,9 @@ class ApiWorkflowIT {
             return new ModelReply("scripted response", List.of(), 1L, 1L, "stop");
         }
         @Override public ToolOutcome invokeTool(ToolInvocation call) { throw new AssertionError("No tool requested"); }
-        @Override public String appendConversation(String previousBlobId, ModelReply reply,
-                List<ToolOutcome> outcomes) { return previousBlobId; }
+        @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
+                List<ToolOutcome> outcomes) { return new ConversationStep(previousBlobId, null, null, null); }
+        @Override public String resumeConversation(String blobId, String hint) { return blobId; }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) {
             String digest = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(

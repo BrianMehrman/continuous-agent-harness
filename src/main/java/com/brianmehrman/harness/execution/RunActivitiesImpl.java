@@ -97,7 +97,8 @@ public class RunActivitiesImpl implements RunActivities {
                     "Use list_files and read_file to inspect the starter before changing it. " +
                     "A passing submit is required; the host evaluates the submitted snapshot." + PROTOCOL;
         }
-        var memory = WorkingMemory.start(spec.runId(), system, task, profile.contextTokens(), profile.outputTokens());
+        var memory = WorkingMemory.start(spec.runId(), system, task, profile.contextTokens(), profile.outputTokens(),
+                spec.policy().thresholds());
         return storeConversation(WorkingMemory.write(memory));
     }
 
@@ -158,11 +159,43 @@ public class RunActivitiesImpl implements RunActivities {
         }
     }
 
-    @Override public String appendConversation(String previousBlobId, ModelReply reply,
+    @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
             List<ToolOutcome> outcomes) {
         byte[] previous = blobs.get(previousBlobId);
-        if (WorkingMemory.isV2(previous))
-            return storeConversation(WorkingMemory.write(WorkingMemory.fold(WorkingMemory.read(previous), reply, outcomes)));
+        if (WorkingMemory.isV2(previous)) {
+            var next = WorkingMemory.fold(WorkingMemory.read(previous), reply, outcomes);
+            var note = next.state().note();
+            String rendered = null;
+            if (note != null) {
+                var lines = new ArrayList<String>();
+                if (note.progress() != null) lines.add("Progress: " + note.progress());
+                if (note.next() != null) lines.add("Next: " + note.next());
+                if (!lines.isEmpty()) rendered = String.join("\n", lines);
+            }
+            return new ConversationStep(storeConversation(WorkingMemory.write(next)),
+                    WorkingMemory.nudgeSignal(next), WorkingMemory.stall(next), rendered);
+        }
+        return new ConversationStep(appendV1(previous, reply, outcomes), null, null, null);
+    }
+
+    @Override public String resumeConversation(String blobId, String hint) {
+        byte[] previous = blobs.get(blobId);
+        if (!WorkingMemory.isV2(previous)) return blobId;
+        return storeConversation(WorkingMemory.write(WorkingMemory.resume(WorkingMemory.read(previous), hint)));
+    }
+
+    @Override public void publishEvent(String runId, long sequence, long version, String status,
+            String snapshotSha256, String type, Map<String, Object> detail) {
+        var payload = new LinkedHashMap<String, Object>();
+        payload.put("version", version);
+        payload.put("status", status);
+        payload.put("snapshotSha256", snapshotSha256);
+        payload.putAll(detail);
+        String blob = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(payload));
+        projections.append(new RunEvent(runId, sequence, runId + ":event-" + sequence, type, blob));
+    }
+
+    private String appendV1(byte[] previous, ModelReply reply, List<ToolOutcome> outcomes) {
         Map<String, Object> root = json.readValue(previous, new TypeReference<>() {});
         if (!Integer.valueOf(1).equals(root.get("version")) || !(root.get("messages") instanceof List<?> old))
             throw new IllegalArgumentException("Invalid conversation");

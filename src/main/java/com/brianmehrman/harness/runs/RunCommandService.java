@@ -3,6 +3,7 @@ package com.brianmehrman.harness.runs;
 import com.brianmehrman.harness.benchmark.TaskTrackerDefinition;
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.CommandResult;
+import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
@@ -52,7 +53,7 @@ public class RunCommandService {
             var seed = workspaces.seed(runId, command.benchmarkVersion());
             var spec = new RunSpec(runId, command.commandId(), inputSha256, command.benchmarkVersion(),
                     definition.starterDigest(), definition.evaluatorVersion(), profile.id(),
-                    profile.fullDigest(), seed.sha256(), command.limits());
+                    profile.fullDigest(), seed.sha256(), command.limits(), PausePolicy.defaults());
             int inserted = jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json) " +
                             "values (?,?,?,?::jsonb) on conflict do nothing",
                     runId, command.commandId(), inputSha256, json.writeValueAsString(spec));

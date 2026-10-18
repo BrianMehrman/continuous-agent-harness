@@ -176,8 +176,9 @@ class CodingWorkflowTest {
             return new ToolOutcome(call.invocationId(), call.request().providerCallId(), name,
                     snapshot, "{\"status\":\"OK\"}", submit, passed);
         }
-        @Override public String appendConversation(String previousBlobId, ModelReply reply,
-                List<ToolOutcome> outcomes) { return "2".repeat(64); }
+        @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
+                List<ToolOutcome> outcomes) { return new ConversationStep("2".repeat(64), null, null, null); }
+        @Override public String resumeConversation(String blobId, String hint) { return blobId; }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) { publishedStatuses.add(status); }
         @Override public boolean cancelRunner(String invocationId) {

@@ -2,6 +2,7 @@ package com.brianmehrman.harness.runs;
 
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.Limits;
+import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.SnapshotRef;
@@ -62,7 +63,7 @@ public class RepositoryWorkService {
                     source.snapshotSha256(), sourceJson, source.byteCount(), source.files().size());
             var spec = new RunSpec(runId, request.commandId(), inputSha, "repository-v1",
                     source.snapshotSha256(), "repository-review-v1", profile.id(), profile.fullDigest(),
-                    source.snapshotSha256(), Limits.codingDefaults());
+                    source.snapshotSha256(), Limits.codingDefaults(), PausePolicy.defaults());
             jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json,kind) " +
                             "values (?,?,?,?::jsonb,'REPOSITORY')",
                     runId, request.commandId(), inputSha, json.writeValueAsString(spec));
