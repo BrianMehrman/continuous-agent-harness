@@ -240,13 +240,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
 
     private Resumed pause(String reason, WorkingMemory.StallVerdict stall, String conversation, int turn, int tools) {
         activeMillisUsed += Workflow.currentTimeMillis() - segmentStartedAt;
-        if (resumesApplied >= policy.maxResumes()) {
-            // No resume could be accepted, so the run ends with its pause reason instead of waiting.
-            event("STOPPED", Map.of("reason", reason, "byOperator", false, "summary", "Stopped: no resumes left"));
-            return new Resumed(terminal(pauseOutcome(reason)), null);
-        }
-        activities.releaseAdmission(spec.runId());
-        transition("PAUSED");
+        boolean exhausted = resumesApplied >= policy.maxResumes();
         var detail = new java.util.LinkedHashMap<String, Object>();
         detail.put("reason", reason);
         detail.put("signal", stall == null ? null : stall.signal());
@@ -259,12 +253,22 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         detail.put("activeMillisUsed", activeMillisUsed);
         detail.put("activeMillisGranted", activeMillisGranted);
         detail.put("note", lastNote);
-        detail.put("waitUntil", Instant.ofEpochMilli(Workflow.currentTimeMillis() + policy.waitMillis()).toString());
+        detail.put("waitUntil", exhausted ? null
+                : Instant.ofEpochMilli(Workflow.currentTimeMillis() + policy.waitMillis()).toString());
         detail.put("summary", "Paused: " + reason.replace('_', ' ').toLowerCase());
-        event("PAUSED", detail);
+        if (exhausted) {
+            // No resume could be accepted: record the pause evidence, then end with the pause reason without waiting.
+            event("PAUSED", detail);
+            event("STOPPED", Map.of("reason", reason, "byOperator", false, "summary", "Stopped: no resumes left"));
+            return new Resumed(terminal(pauseOutcome(reason)), null);
+        }
+        activities.releaseAdmission(spec.runId());
+        // Accept commands from the moment the PAUSED status can be observed.
         resumeRequest = null;
         stopRequested = false;
         paused = true;
+        transition("PAUSED");
+        event("PAUSED", detail);
         boolean signalled = Workflow.await(Duration.ofMillis(policy.waitMillis()),
                 () -> resumeRequest != null || stopRequested || cancelRequested);
         paused = false;

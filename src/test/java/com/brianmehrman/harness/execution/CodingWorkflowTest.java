@@ -164,6 +164,15 @@ class CodingWorkflowTest {
             RunView cancelPaused = awaitStatus(cancelled, "PAUSED");
             assertEquals("APPLIED", cancelled.cancel(new CancelCommand("cancel-paused", cancelPaused.version())).deliveryStatus());
             assertEquals("CANCELLED", cancelResult.get(5, TimeUnit.SECONDS).status());
+
+            var noResumes = new PausePolicy(3, 3, 6, 7L * 24 * 3_600_000, 0, 40, 100, 30, 120, 300, 90);
+            var exhausted = client.newWorkflowStub(CodingWorkflow.class,
+                    WorkflowOptions.newBuilder().setWorkflowId(RUN + "-exhausted").setTaskQueue("coding-pause-test").build());
+            fixture.reset();
+            assertEquals("LIMIT_EXHAUSTED", exhausted.run(new RunSpec(RUN + "-exhausted", "start-4",
+                    "f".repeat(64), "task-tracker-v1", "0".repeat(64), "evaluator-v1", "profile-1",
+                    "1".repeat(64), SEED, Limits.codingDefaults().withModelTurns(1), noResumes)).status());
+            assertEquals(List.of("PAUSED", "STOPPED"), fixture.events, "A run with no resumes left still records its pause");
         }
     }
 
