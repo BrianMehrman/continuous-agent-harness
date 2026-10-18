@@ -80,7 +80,7 @@ public final class WorkingMemory {
         Progress old = state.progress() == null ? Progress.empty(Thresholds.defaults(), state.turn()) : state.progress();
         var hints = new ArrayList<>(old.hints());
         if (hint != null) hints.add(hint.startsWith("Operator:") ? hint : "Operator: " + hint);
-        Progress restarted = new Progress(old.thresholds(), List.of(), false, old.writeHistory(), 0, List.of(),
+        Progress restarted = new Progress(old.thresholds(), List.of(), false, java.util.Collections.unmodifiableSortedMap(new TreeMap<>(old.writeHistory())), 0, List.of(),
                 state.turn(), old.seen(), hint == null ? old.nudged() : List.of(), List.copyOf(hints), null, null);
         State next = new State(state.turn(), state.files(), state.lastCheck(), state.rejected(), state.note(), restarted);
         var turns = new ArrayList<>(memory.recent());
@@ -210,6 +210,9 @@ public final class WorkingMemory {
         var writes = new ArrayList<>(p.recentWrites());
         var seen = new LinkedHashSet<>(p.seen());
         boolean newFact = false;
+        boolean checkedThisTurn = false;
+        boolean repeatWriteThisTurn = false;
+        List<String> checkErrors = List.of();
         for (int i = 0; i < outcomes.size() && i < reply.tools().size(); i++) {
             ToolOutcome outcome = outcomes.get(i);
             JsonNode result = parse(outcome.responseJson());
@@ -224,6 +227,7 @@ public final class WorkingMemory {
                     boolean repeat = result.path("changed").isBoolean() && !result.path("changed").asBoolean()
                             || hashes.contains(sha);
                     nonProgress = repeat ? nonProgress + 1 : 0;
+                    repeatWriteThisTurn |= repeat;
                     if (!repeat) { newFact = true; hashes.add(sha); }
                     while (hashes.size() > HISTORY_PER_PATH) hashes.removeFirst();
                     writes.add("turn " + turn + " write " + path + " sha256=" + cap(sha, 12) +
@@ -237,6 +241,8 @@ public final class WorkingMemory {
                     checks.add((writeSinceCheck ? "w" : "-") + turn + "|" + fingerprint);
                     while (checks.size() > p.thresholds().repeatedFailure()) checks.removeFirst();
                     writeSinceCheck = false;
+                    checkedThisTurn = true;
+                    checkErrors = strings(result.path("errors"));
                 }
                 case "read_file", "list_files" -> {
                     JsonNode args = parse(reply.tools().get(i).argumentsJson());
@@ -254,13 +260,11 @@ public final class WorkingMemory {
         if (reply.tools().isEmpty()) {
             signal = "NO_TOOL_CALL";
             evidence.add("turn " + turn + " reply had no tool call");
-        } else if (checks.size() == p.thresholds().repeatedFailure() && failingRepeat(checks)) {
+        } else if (checkedThisTurn && checks.size() == p.thresholds().repeatedFailure() && failingRepeat(checks)) {
             signal = "REPEATED_FAILURE";
             for (String c : checks) evidence.add("check at turn " + c.substring(1, c.indexOf('|')));
-            parse(outcomes.getLast().responseJson()).path("errors").forEach(e -> {
-                if (evidence.size() < EVIDENCE_ERRORS + checks.size()) evidence.add(e.asText(""));
-            });
-        } else if (nonProgress >= p.thresholds().repeatedContent()) {
+            checkErrors.stream().limit(EVIDENCE_ERRORS).forEach(evidence::add);
+        } else if (repeatWriteThisTurn && nonProgress >= p.thresholds().repeatedContent()) {
             signal = "REPEATED_CONTENT";
             evidence.addAll(writes);
         } else if (turn - lastNewFact >= p.thresholds().noNewFacts()) {
@@ -274,7 +278,7 @@ public final class WorkingMemory {
             if (nudged.contains(signal)) stall = new StallVerdict(signal, turn, List.copyOf(evidence));
             else { nudged.add(signal); fired = signal; }
         }
-        return new Progress(p.thresholds(), List.copyOf(checks), writeSinceCheck, Map.copyOf(history), nonProgress,
+        return new Progress(p.thresholds(), List.copyOf(checks), writeSinceCheck, java.util.Collections.unmodifiableSortedMap(history), nonProgress,
                 List.copyOf(writes), lastNewFact, List.copyOf(seenList), List.copyOf(nudged), p.hints(), fired, stall);
     }
 

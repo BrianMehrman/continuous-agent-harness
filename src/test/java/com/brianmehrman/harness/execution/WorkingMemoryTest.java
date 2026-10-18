@@ -119,6 +119,7 @@ class WorkingMemoryTest {
         for (int i = 0; i < 4; i++) {
             memory = fold(memory, "write_file", write("Main.java", "absent", "attempt " + i),
                     Map.of("status", "OK", "path", "Main.java", "sha256", SnapshotHasher.content("attempt " + i), "changed", true));
+            if (i == 3) assertNull(WorkingMemory.stall(memory), "A write after the nudge is not a repeated check");
             memory = fold(memory, "build", "{}", Map.of("status", "FAILED", "exitCode", 1,
                     "errors", List.of(i % 2 == 0 ? failing : movedLine), "logTail", "..."));
             if (i < 2) assertNull(WorkingMemory.nudgeSignal(memory));
