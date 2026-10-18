@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type Pause, type Profile, type Resume, type RunDetail, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
+import { formatCommandStatus, formatPauseUsage } from './run-detail';
 
 const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Paused', 'Terminal'];
 const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW', 'STALLED']);
@@ -30,7 +31,7 @@ function PausePanel({ pause, busy, onResume, onStop, onEdit }: { pause: Pause; b
     <h4>Paused · {pause.reason.replaceAll('_', ' ').toLowerCase()}{pause.signal ? ` (${pause.signal.replaceAll('_', ' ').toLowerCase()})` : ''}</h4>
     {pause.evidence.length > 0 && <ol className="evidence">{pause.evidence.map((line, i) => <li key={i}>{line}</li>)}</ol>}
     {pause.note && <p className="instructions">{pause.note}</p>}
-    <p className="instructions">Turns {pause.turnsUsed}/{pause.turnsGranted} · tool calls {pause.toolCallsUsed}/{pause.toolCallsGranted} · active {Math.round(pause.activeMillisUsed / 60000)}/{Math.round(pause.activeMillisGranted / 60000)} min{pause.waitUntil ? ` · waits until ${new Date(pause.waitUntil).toLocaleString()}` : ''}</p>
+    <p className="instructions">{formatPauseUsage(pause)}{pause.waitUntil ? ` · waits until ${new Date(pause.waitUntil).toLocaleString()}` : ''}</p>
     <form onSubmit={submit}>
       <label>Extra turns (max 40)<input type="number" min={0} max={40} value={extra.turns} onChange={e => edit({ turns: Number(e.target.value) })} /></label>
       <label>Extra tool calls (max 100)<input type="number" min={0} max={100} value={extra.tools} onChange={e => edit({ tools: Number(e.target.value) })} /></label>
@@ -236,7 +237,7 @@ export default function App() {
             <h3>Benchmark run {short(runDetail.projection.runId)}</h3><div className="status-line"><span className="status-pill">{runDetail.projection.status.replaceAll('_',' ')}</span>{runDetail.projection.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
             {runDetail.projection.status === 'PAUSED' && runDetail.pause && pausePanel(runDetail.pause, runDetail.projection.runId)}
             <ResumeHistory resumes={runDetail.resumes} label={runDetail.label} />
-            <h4>Commands</h4>{runDetail.commands.length > 0 ? <ol className="events">{runDetail.commands.map(c => <li key={c.commandId}>{c.kind.replaceAll('_', ' ').toLowerCase()} · {c.deliveryStatus.toLowerCase()}{c.applicationOutcome ? ` · ${c.applicationOutcome.replaceAll('_', ' ').toLowerCase()}` : ''}</li>)}</ol> : <p className="empty">No commands recorded.</p>}
+            <h4>Commands</h4>{runDetail.commands.length > 0 ? <ol className="events">{runDetail.commands.map(c => <li key={c.commandId}>{formatCommandStatus(c)}</li>)}</ol> : <p className="empty">No commands recorded.</p>}
             <a className="download" href={`/api/runs/${encodeURIComponent(runDetail.projection.runId)}`}>raw JSON ↗</a>
           </> : !selectedRun && detail && selected === detail.workId ? <>
             <h3>{detail.title}</h3><div className="status-line"><span className="status-pill">{detail.status.replaceAll('_',' ')}</span>{detail.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
