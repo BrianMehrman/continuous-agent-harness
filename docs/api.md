@@ -45,6 +45,19 @@ python3 scripts/harness.py download RUN_ID DIGEST --output event.json
 
 The downloaded file is output data; inspect it with an editor or JSON viewer. Runner reports, evaluation artifacts, model attempt blobs, semantic event payloads, and terminal result blobs use the same route when associated with that run. Unrelated digests return `404`. The CLI never executes downloaded content.
 
+## Pause and resume
+
+A run that stops making progress or reaches a limit pauses instead of failing. Events `NUDGED`, `PAUSED`, `RESUMED`, and `STOPPED` record the ladder. Pause reasons are `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, and `TIME_LIMIT`; a stopped run ends as `STALLED`, `LIMIT_EXHAUSTED`, `LIMIT_EXHAUSTED`, or (when the 7-day waiting limit passes) `EXPIRED`. Run and work detail views add `pause` (only while `PAUSED`), `resumes`, `nudges`, and `label`: `assisted` if any resume carried a hint, `extended` if resumes only added limits, otherwise null; an assisted pass is never an unassisted completion. The work list adds `paused` and `pausedRuns`.
+
+Read `projection.version` from `status`, then resume with extra allowance or stop:
+
+```sh
+python3 scripts/harness.py resume RUN_ID --expected-version VERSION --turns 20 --hint "Check the failing test first"
+python3 scripts/harness.py stop RUN_ID --expected-version VERSION
+```
+
+`--tools N` and `--minutes N` grant extra tool calls and minutes. Ceilings are per resume 40 turns, 100 tool calls, and 30 minutes; per run 3 resumes, 120 extra turns, 300 extra tool calls, and 90 extra minutes. A hint is at most 2,000 characters and reaches only the conversation. A run with no resumes left ends with its pause reason at its next pause.
+
 ## HTTP contract
 
 | Method and path | Purpose |
@@ -54,6 +67,9 @@ The downloaded file is output data; inspect it with an editor or JSON viewer. Ru
 | `GET /api/runs/{id}` | Return projection and command delivery/application outcomes. |
 | `GET /api/runs/{id}/events?after=N` | Return up to 200 ordered events with sequence greater than `N`; repeat with the last seen sequence. |
 | `POST /api/runs/{id}/cancel` | Accept `{commandId, expectedVersion}`; return `202`. |
+| `POST /api/runs/{id}/resume` | Accept `{commandId, expectedVersion, extraTurns?, extraToolCalls?, extraMinutes?, hint?}` for a `PAUSED` run; return `202`. `409` if the run is not paused, the version is stale, or the command ID was used with different input; `400` above a per-resume or per-run ceiling or for malformed input. |
+| `POST /api/runs/{id}/stop` | Accept `{commandId, expectedVersion}` for a `PAUSED` run; return `202`. The run ends with its pause reason. Same `409` rules. |
+| `POST /api/work/{id}/resume`, `POST /api/work/{id}/stop` | Same bodies and responses for repository work items. |
 | `GET /api/profiles` | List frozen local profile settings without credential references. |
 | `POST /api/profiles/probe` | Probe `{modelTag}` against installed local Ollama inventory and save a verified profile. |
 | `GET /api/runs/{id}/artifacts/{digest}` | Download a run-associated SHA-256 blob as an attachment. |
