@@ -36,6 +36,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
     private int resumesApplied, extraTurnsApplied, extraToolCallsApplied, extraMinutesApplied;
     private boolean paused;
     private ResumeCommand resumeRequest;
+    private String pauseReason;
     private boolean stopRequested;
     private String lastNote;
 
@@ -58,7 +59,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         while (true) {
             if (cancelRequested) return terminal("CANCELLED");
             String limit = turn >= turnsGranted || dispatched + input.limits().perTurnModelAttempts() > attemptsGranted
-                    ? "TURN_LIMIT" : outOfTime() ? "TIME_LIMIT" : null;
+                    ? "TURN_LIMIT" : toolCount >= toolsGranted ? "TOOL_LIMIT" : outOfTime() ? "TIME_LIMIT" : null;
             if (limit != null) {
                 Resumed resumed = pause(limit, null, conversation, turn, toolCount);
                 if (resumed.terminal() != null) return resumed.terminal();
@@ -136,8 +137,13 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             ConversationStep step = activities.appendConversation(conversation, reply, outcomes);
             conversation = step.blobId();
             if (step.note() != null) lastNote = step.note();
-            if (step.nudged() != null) event("NUDGED", Map.of("signal", step.nudged(), "turn", turn,
-                    "summary", "Nudged: " + step.nudged().replace('_', ' ').toLowerCase()));
+            if (step.nudged() != null) {
+                var nudged = new java.util.LinkedHashMap<String, Object>();
+                nudged.put("signal", step.nudged());
+                nudged.put("turn", turn);
+                nudged.put("summary", "Nudged: " + step.nudged().replace('_', ' ').toLowerCase());
+                event("NUDGED", nudged);
+            }
             String reason = budgetPause != null ? budgetPause : step.stall() != null ? "STALLED" : null;
             if (reason != null) {
                 Resumed resumed = pause(reason, step.stall(), conversation, turn, toolCount);
@@ -259,7 +265,11 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         if (exhausted) {
             // No resume could be accepted: record the pause evidence, then end with the pause reason without waiting.
             event("PAUSED", detail);
-            event("STOPPED", Map.of("reason", reason, "byOperator", false, "summary", "Stopped: no resumes left"));
+            var stopped = new java.util.LinkedHashMap<String, Object>();
+            stopped.put("reason", reason);
+            stopped.put("byOperator", false);
+            stopped.put("summary", "Stopped: no resumes left");
+            event("STOPPED", stopped);
             return new Resumed(terminal(pauseOutcome(reason)), null);
         }
         activities.releaseAdmission(spec.runId());
@@ -267,6 +277,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         resumeRequest = null;
         stopRequested = false;
         paused = true;
+        pauseReason = reason;
         transition("PAUSED");
         event("PAUSED", detail);
         boolean signalled = Workflow.await(Duration.ofMillis(policy.waitMillis()),
@@ -274,8 +285,11 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         paused = false;
         if (cancelRequested) return new Resumed(terminal("CANCELLED"), null);
         if (!signalled || stopRequested) {
-            event("STOPPED", Map.of("reason", reason, "byOperator", signalled,
-                    "summary", signalled ? "Stopped by operator" : "Stopped: waiting limit reached"));
+            var stopped = new java.util.LinkedHashMap<String, Object>();
+            stopped.put("reason", reason);
+            stopped.put("byOperator", signalled);
+            stopped.put("summary", signalled ? "Stopped by operator" : "Stopped: waiting limit reached");
+            event("STOPPED", stopped);
             return new Resumed(terminal(pauseOutcome(reason)), null);
         }
         ResumeCommand resume = resumeRequest;
@@ -320,7 +334,11 @@ public class CodingWorkflowImpl implements CodingWorkflow {
 
     @Override public CommandResult resume(ResumeCommand command) {
         return control(command.commandId(), command.expectedVersion(), command, () -> {
-            if (resumesApplied >= policy.maxResumes() || command.extraTurns() > policy.resumeTurns() ||
+            // A resume must extend the limit that was reached; STALLED accepts any resume.
+            if (resumesApplied >= policy.maxResumes() ||
+                    "TURN_LIMIT".equals(pauseReason) && command.extraTurns() <= 0 ||
+                    "TOOL_LIMIT".equals(pauseReason) && command.extraToolCalls() <= 0 ||
+                    "TIME_LIMIT".equals(pauseReason) && command.extraMinutes() <= 0 || command.extraTurns() > policy.resumeTurns() ||
                     command.extraToolCalls() > policy.resumeToolCalls() || command.extraMinutes() > policy.resumeMinutes() ||
                     extraTurnsApplied + command.extraTurns() > policy.totalExtraTurns() ||
                     extraToolCallsApplied + command.extraToolCalls() > policy.totalExtraToolCalls() ||
@@ -348,7 +366,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         if (prior != null) return prior.payload().equals(payload) ? prior.result()
                 : new CommandResult(spec.runId(), commandId, "REJECTED_CONFLICT");
         if (RunStatus.isTerminal(status)) return new CommandResult(spec.runId(), commandId, "REJECTED_TERMINAL");
-        if (!paused || resumeRequest != null || stopRequested)
+        if (!paused || resumeRequest != null || stopRequested || cancelRequested)
             return new CommandResult(spec.runId(), commandId, "REJECTED_STATE");
         if (expectedVersion != version) return new CommandResult(spec.runId(), commandId, "REJECTED_VERSION");
         var result = new CommandResult(spec.runId(), commandId, apply.get());

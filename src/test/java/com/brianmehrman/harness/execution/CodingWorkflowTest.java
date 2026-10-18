@@ -134,6 +134,8 @@ class CodingWorkflowTest {
             RunView paused = awaitStatus(workflow, "PAUSED");
             assertTrue(fixture.released, "A paused run releases its execution slot");
             assertEquals("REJECTED_VERSION", workflow.resume(new ResumeCommand("resume-stale", 0, 3, 0, 0, null)).deliveryStatus());
+            assertEquals("REJECTED_LIMIT", workflow.resume(new ResumeCommand("resume-no-extra", paused.version(), 0, 0, 0,
+                    null)).deliveryStatus(), "A resume must extend the turn limit that was reached");
             assertEquals("APPLIED", workflow.resume(new ResumeCommand("resume-1", paused.version(), 3, 0, 0,
                     "Use the passing approach")).deliveryStatus());
             assertEquals("APPLIED", workflow.resume(new ResumeCommand("resume-1", paused.version(), 3, 0, 0,

@@ -52,6 +52,7 @@ public final class WorkingMemory {
     static final int SEEN_KEPT = 128;
     static final int WRITES_KEPT = 8;
     static final int EVIDENCE_ERRORS = 5;
+    private static final Pattern DURATION = Pattern.compile("\\b\\d+(\\.\\d+)?\\s*(ms|s|m)\\b");
     private static final Pattern POSITION = Pattern.compile(":\\d+(:\\d+)?(?=:)");
     public record FileState(String path, String sha256, boolean written, int turn) {}
     public record CheckState(String tool, String outcome, Integer exitCode, List<String> errors, String receiptRef) {}
@@ -295,8 +296,13 @@ public final class WorkingMemory {
 
     private static String fingerprint(String tool, JsonNode result) {
         var errors = new ArrayList<String>();
-        result.path("errors").forEach(e -> errors.add(POSITION.matcher(e.asText("").replace("/work/input/", ""))
-                .replaceAll("")));
+        // Build durations vary between identical failures, so the summary line and any timing are not part of the identity.
+        result.path("errors").forEach(e -> {
+            String line = e.asText("");
+            if (!line.startsWith("BUILD FAILED in "))
+                errors.add(DURATION.matcher(POSITION.matcher(line.replace("/work/input/", "")).replaceAll(""))
+                        .replaceAll(""));
+        });
         java.util.Collections.sort(errors);
         return tool + "|" + result.path("status").asText("") + "|" + String.join("\n", errors);
     }

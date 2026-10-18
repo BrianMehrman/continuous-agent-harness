@@ -25,16 +25,19 @@ public class RunCommandService {
     private final WorkspaceStore workspaces;
     private final ProfileRevisionStore profiles;
     private final TaskTrackerDefinition definition;
+    private final BlobStore blobs;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RunCommandService(JdbcTemplate jdbc, PlatformTransactionManager manager,
-            WorkspaceStore workspaces, ProfileRevisionStore profiles, TaskTrackerDefinition definition) {
+            WorkspaceStore workspaces, ProfileRevisionStore profiles, TaskTrackerDefinition definition,
+            BlobStore blobs) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(manager));
         this.transactions.setTimeout(15);
         this.workspaces = Objects.requireNonNull(workspaces);
         this.profiles = Objects.requireNonNull(profiles);
         this.definition = Objects.requireNonNull(definition);
+        this.blobs = Objects.requireNonNull(blobs);
     }
 
     public StartResult start(StartCommand command) {
@@ -88,6 +91,11 @@ public class RunCommandService {
             if (command.extraTurns() > policy.resumeTurns() || command.extraToolCalls() > policy.resumeToolCalls() ||
                     command.extraMinutes() > policy.resumeMinutes())
                 throw new IllegalArgumentException("Resume exceeds the per-resume ceiling");
+            String reached = pauseReason(runId);
+            if ("TURN_LIMIT".equals(reached) && command.extraTurns() <= 0 ||
+                    "TOOL_LIMIT".equals(reached) && command.extraToolCalls() <= 0 ||
+                    "TIME_LIMIT".equals(reached) && command.extraMinutes() <= 0)
+                throw new IllegalArgumentException("Resume must extend the limit that was reached: " + reached);
             var prior = jdbc.query("select payload_json::text from run_command where run_id=? and kind='RESUME' " +
                             "and (delivered_at is null or outcome_json->>'deliveryStatus'='APPLIED')",
                     (rs, row) -> json.readValue(rs.getString(1), ResumeCommand.class), runId);
@@ -109,6 +117,18 @@ public class RunCommandService {
     private boolean exists(String commandId) {
         return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from run_command where command_id=?)",
                 Boolean.class, commandId));
+    }
+
+    private String pauseReason(String runId) {
+        var ids = jdbc.queryForList("select payload_blob_id from run_event where run_id=? and type='PAUSED' " +
+                "order by sequence desc limit 1", String.class, runId);
+        if (ids.isEmpty()) return null;
+        try {
+            var payload = json.readTree(blobs.get(ids.getFirst()));
+            return payload.path("reason").asText(null);
+        } catch (RuntimeException unreadable) {
+            return null; // The workflow applies the same rule when it receives the command.
+        }
     }
 
     private void requirePaused(String runId) {

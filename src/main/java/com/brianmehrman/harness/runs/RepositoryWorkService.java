@@ -161,7 +161,7 @@ public class RepositoryWorkService {
         result.put("version", row[6]);
         result.put("stale", (Boolean)row[7] || (Boolean)row[12] &&
                 ((java.time.Instant)row[13]).isBefore(java.time.Instant.now().minusSeconds(15)) &&
-                !RunStatus.isTerminal((String)row[5]));
+                !RunStatus.isTerminal((String)row[5]) && !"PAUSED".equals(row[5]));
         result.put("lastSequence", row[8]);
         String reviewBlobId = (String)row[9];
         String finalSnapshot = (String)row[10];

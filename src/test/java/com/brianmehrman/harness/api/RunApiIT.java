@@ -76,6 +76,10 @@ class RunApiIT {
         String tooMuch = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
                 "expectedVersion", 3, "extraTurns", 41));
         assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", tooMuch).statusCode());
+        String noExtension = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 3, "extraTurns", 0, "extraToolCalls", 5));
+        assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", noExtension).statusCode(),
+                "A resume must extend the limit that was reached");
         String resumeId = "resume-" + UUID.randomUUID();
         String good = json.writeValueAsString(Map.of("commandId", resumeId, "expectedVersion", 3,
                 "extraTurns", 5, "hint", "Fix the definite-assignment error first"));
