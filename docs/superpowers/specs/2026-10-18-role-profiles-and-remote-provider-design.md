@@ -1,7 +1,7 @@
 # Role Profiles and a Remote Provider Design (M2)
 
 Date: 2026-10-18
-Status: Approved conversational design; written spec awaiting owner review
+Status: Approved by owner 2026-10-18; amended by the implementation plan (see Plan amendments)
 
 ## Purpose
 
@@ -16,6 +16,21 @@ M2 adds three things to the existing single coding loop:
 **Owner decisions (2026-10-18):** the Anthropic API is the first remote provider. Acceptance is a developer role on Claude Haiku 5.5. Prices are frozen in the profile. The cost limit pauses before a call that could exceed it, and resuming raises the limit. A call with an uncertain outcome is charged at worst case and flagged as estimated. Roles are committed files, and the role-to-profile binding is local config. Sending repository content to a remote model needs an explicit opt-in on each run. Prompt caching covers the system prompt and tool definitions. Each run has a cost buffer, 10% by default. Secrets are never committed or published, and CI runs a gitleaks scan.
 
 The cost limit is a guard against runaway spend while a run is unattended. It is not a billing system. The harness promises that a run stays below its own conservative estimate of spend; it does not reconcile against Anthropic's invoice.
+
+## Plan amendments (2026-10-18)
+
+Writing the [implementation plan](../plans/2026-10-18-role-profiles-and-remote-provider.md) against the code changed these decisions. Where the sections below disagree with this one, this one wins.
+
+1. **Key location.** `application.yaml` imports `.secrets/app/` as a Spring configtree, which turns every file there into an application property. The key therefore lives in `${HARNESS_MODEL_SECRETS_DIR:./.secrets/models/}<credentialReference>`, never in `.secrets/app/`.
+2. **One migration.** Profiles are already stored as JSON in `model_profile_revision.profile_json`, so they need no migration. The only migration is `V10__record_model_attempt_cost.sql`.
+3. **Every uncertain attempt is charged worst case.** The workflow can't tell whether a `MODEL_ATTEMPT_UNKNOWN` attempt was sent. To keep the workflow's spend and the ledger identical, every `UNKNOWN` attempt is charged worst case, including one abandoned before dispatch. The worst-case input is the full window, `contextTokens − outputTokens`.
+4. **Anthropic request shape.** Claude Haiku 5.5 rejects non-default sampling parameters, so `AnthropicProfile` has no temperature and requests send none. Requests send `thinking: {type: "disabled"}` with effort `medium`, so working memory's rewritten history never has to replay thinking blocks. A system-prompt `cache_control` breakpoint caches both the tools and the system prompt, because tools render before the system prompt.
+5. **Price tier.** Haiku 5.5's prices rise fivefold above 100K prompt tokens, so `AnthropicProfile` records `priceTierInputTokens` and requires `contextTokens ≤ priceTierInputTokens`.
+6. **Naming.** Model roles are `AgentRole` and `AgentRoleCatalog`, to avoid confusion with the existing process roles (`api`, `worker`, `runner`).
+7. **SDK.** The adapter uses the official `com.anthropic:anthropic-java` SDK with `maxRetries(0)`. It is added with lockfile and checksum verification.
+8. **CLI scope.** `scripts/harness.py` has no work-creation command, so the new flags go on `start` and `resume` only.
+9. **A resume must be able to afford the next call.** A `COST_LIMIT` resume is rejected with `REJECTED_LIMIT` unless the new effective limit covers spent plus the next call's worst case.
+10. **Where cost appears.** The cost block appears on the run and work detail responses, not on `RunView`. `RunView` is the Temporal query projection and stays unchanged.
 
 ## Scope
 
