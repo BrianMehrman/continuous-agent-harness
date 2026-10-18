@@ -70,7 +70,7 @@ def installWeb = tasks.register('installWeb', Exec) {
 }
 def buildWeb = tasks.register('buildWeb', Exec) {
     dependsOn installWeb
-    inputs.files(fileTree('web/src'), 'web/index.html', 'web/package.json', 'web/package-lock.json', 'web/vite.config.ts', 'web/tsconfig.json')
+    inputs.files(fileTree('web/src'), fileTree('web/test'), 'web/index.html', 'web/package.json', 'web/package-lock.json', 'web/vite.config.ts', 'web/tsconfig.json')
     outputs.dir(layout.buildDirectory.dir('generated-web'))
     workingDir file('web')
     commandLine 'npm', 'run', 'build'
