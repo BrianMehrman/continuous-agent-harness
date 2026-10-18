@@ -36,12 +36,10 @@ public class RunTelemetry {
     }
 
     public void transition(String runId, String status) {
-        String outcome = switch (status) {
-            case "QUEUED", "RUNNING", "CANCEL_REQUESTED", "STOPPING", "SUCCEEDED", "READY_FOR_REVIEW", "FAILED",
-                    "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED", "INFRASTRUCTURE_FAILED",
-                    "CONTEXT_OVERFLOW" -> status;
-            default -> "UNKNOWN";
-        };
+        String outcome = RunStatus.isTerminal(status) || switch (status) {
+            case "QUEUED", "RUNNING", "PAUSED", "CANCEL_REQUESTED", "STOPPING" -> true;
+            default -> false;
+        } ? status : "UNKNOWN";
         try {
             meters.counter("harness.run.transitions", "status", outcome).increment();
             LOG.info("run_transition runId={} status={}", runId, outcome);

@@ -47,7 +47,7 @@ class CodingWorkflowTest {
         }
     }
 
-    @Test void twoTextOnlyRepliesFailAfterOneProtocolReminder() {
+    @Test void secondTextOnlyReplyStallsAndEndsWhenNobodyResumes() {
         var fixture = new ScriptedActivities(List.of(
                 new ModelReply("done", List.of(), 1L, 1L, "stop"),
                 new ModelReply("still done", List.of(), 1L, 1L, "stop")));
@@ -62,8 +62,10 @@ class CodingWorkflowTest {
                     "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
                     Limits.codingDefaults());
 
-            assertEquals("FAILED", workflow.run(spec).status());
+            assertEquals("STALLED", workflow.run(spec).status());
             assertEquals(2, fixture.modelAttempts.size());
+            assertTrue(fixture.events.contains("PAUSED"));
+            assertTrue(fixture.events.contains("STOPPED"));
         }
     }
 
@@ -110,7 +112,68 @@ class CodingWorkflowTest {
 
             assertEquals("EXPIRED", workflow.run(spec).status());
             assertTrue(fixture.toolSnapshots.isEmpty());
+            assertTrue(fixture.events.contains("PAUSED"));
         }
+    }
+
+    @Test void turnLimitPausesThenResumesWithExtraTurnsAndHintThenSubmits() throws Exception {
+        var fixture = new ScriptedActivities();
+        try (var environment = TestWorkflowEnvironment.newInstance()) {
+            var worker = environment.newWorker("coding-pause-test");
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
+            worker.registerActivitiesImplementations(fixture);
+            environment.start();
+            var client = environment.getWorkflowClient();
+            var workflow = client.newWorkflowStub(CodingWorkflow.class,
+                    WorkflowOptions.newBuilder().setWorkflowId(RUN).setTaskQueue("coding-pause-test").build());
+            var spec = new RunSpec(RUN, "start-1", "f".repeat(64), "task-tracker-v1",
+                    "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
+                    Limits.codingDefaults().withModelTurns(2), PausePolicy.defaults());
+            var result = WorkflowClient.execute(workflow::run, spec);
+
+            RunView paused = awaitStatus(workflow, "PAUSED");
+            assertTrue(fixture.released, "A paused run releases its execution slot");
+            assertEquals("REJECTED_VERSION", workflow.resume(new ResumeCommand("resume-stale", 0, 3, 0, 0, null)).deliveryStatus());
+            assertEquals("APPLIED", workflow.resume(new ResumeCommand("resume-1", paused.version(), 3, 0, 0,
+                    "Use the passing approach")).deliveryStatus());
+            assertEquals("APPLIED", workflow.resume(new ResumeCommand("resume-1", paused.version(), 3, 0, 0,
+                    "Use the passing approach")).deliveryStatus(), "A repeated command returns its first outcome");
+
+            assertEquals("SUCCEEDED", result.get(5, TimeUnit.SECONDS).status());
+            assertEquals("Use the passing approach", fixture.hint);
+            assertEquals(List.of("RUNNING", "PAUSED", "QUEUED", "RUNNING", "SUCCEEDED"), fixture.publishedStatuses);
+            assertTrue(fixture.events.containsAll(List.of("PAUSED", "RESUMED")));
+
+            var stopped = client.newWorkflowStub(CodingWorkflow.class,
+                    WorkflowOptions.newBuilder().setWorkflowId(RUN + "-stop").setTaskQueue("coding-pause-test").build());
+            var stopSpec = new RunSpec(RUN + "-stop", "start-2", "f".repeat(64), "task-tracker-v1",
+                    "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
+                    Limits.codingDefaults().withModelTurns(1), PausePolicy.defaults());
+            fixture.reset();
+            var stopResult = WorkflowClient.execute(stopped::run, stopSpec);
+            RunView stopPaused = awaitStatus(stopped, "PAUSED");
+            assertEquals("APPLIED", stopped.stop(new StopCommand("stop-1", stopPaused.version())).deliveryStatus());
+            assertEquals("LIMIT_EXHAUSTED", stopResult.get(5, TimeUnit.SECONDS).status());
+
+            var cancelled = client.newWorkflowStub(CodingWorkflow.class,
+                    WorkflowOptions.newBuilder().setWorkflowId(RUN + "-cancel").setTaskQueue("coding-pause-test").build());
+            fixture.reset();
+            var cancelResult = WorkflowClient.execute(cancelled::run, new RunSpec(RUN + "-cancel", "start-3",
+                    "f".repeat(64), "task-tracker-v1", "0".repeat(64), "evaluator-v1", "profile-1",
+                    "1".repeat(64), SEED, Limits.codingDefaults().withModelTurns(1), PausePolicy.defaults()));
+            RunView cancelPaused = awaitStatus(cancelled, "PAUSED");
+            assertEquals("APPLIED", cancelled.cancel(new CancelCommand("cancel-paused", cancelPaused.version())).deliveryStatus());
+            assertEquals("CANCELLED", cancelResult.get(5, TimeUnit.SECONDS).status());
+        }
+    }
+
+    private static RunView awaitStatus(CodingWorkflow workflow, String status) throws InterruptedException {
+        for (int i = 0; i < 250; i++) {
+            RunView view = workflow.current();
+            if (status.equals(view.status())) return view;
+            Thread.sleep(20);
+        }
+        throw new AssertionError("Workflow never reached " + status);
     }
 
     private static final class ScriptedActivities implements RunActivities {
@@ -127,6 +190,9 @@ class CodingWorkflowTest {
         private boolean released;
         private int unconfirmedStops;
         private int stopRequests;
+        private final List<String> events = new ArrayList<>();
+        private String hint;
+        private int textOnly;
 
         private ScriptedActivities() {
             this(List.of(reply("read_file"), reply("write_file"), reply("run_tests"),
@@ -134,6 +200,8 @@ class CodingWorkflowTest {
         }
 
         private ScriptedActivities(List<ModelReply> replies) { this.replies = replies; }
+
+        void reset() { modelCalls = 0; submissions = 0; toolSnapshots.clear(); publishedStatuses.clear(); events.clear(); }
 
         @Override public boolean acquireAdmission(String runId) { return true; }
         @Override public void releaseAdmission(String runId) { released = true; }
@@ -177,8 +245,15 @@ class CodingWorkflowTest {
                     snapshot, "{\"status\":\"OK\"}", submit, passed);
         }
         @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
-                List<ToolOutcome> outcomes) { return new ConversationStep("2".repeat(64), null, null, null); }
-        @Override public String resumeConversation(String blobId, String hint) { return blobId; }
+                List<ToolOutcome> outcomes) {
+            if (reply.tools().isEmpty() && ++textOnly >= 2)
+                return new ConversationStep("2".repeat(64), null,
+                        new WorkingMemory.StallVerdict("NO_TOOL_CALL", textOnly, List.of("turn reply had no tool call")), null);
+            return new ConversationStep("2".repeat(64), null, null, null);
+        }
+        @Override public String resumeConversation(String blobId, String hint) { this.hint = hint; return blobId; }
+        @Override public void publishEvent(String runId, long sequence, long version, String status,
+                String snapshotSha256, String type, java.util.Map<String, Object> detail) { events.add(type); }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) { publishedStatuses.add(status); }
         @Override public boolean cancelRunner(String invocationId) {

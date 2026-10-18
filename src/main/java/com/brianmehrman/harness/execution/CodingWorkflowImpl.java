@@ -7,9 +7,6 @@ import io.temporal.activity.ActivityOptions;
 import io.temporal.common.RetryOptions;
 import io.temporal.failure.ActivityFailure;
 import io.temporal.failure.ApplicationFailure;
-import io.temporal.failure.CanceledFailure;
-import io.temporal.workflow.Async;
-import io.temporal.workflow.CancellationScope;
 import io.temporal.workflow.Workflow;
 import io.temporal.workflow.WorkflowVersioningBehavior;
 import io.temporal.common.VersioningBehavior;
@@ -25,63 +22,63 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             ActivityOptions.newBuilder().setStartToCloseTimeout(Duration.ofSeconds(200))
                     .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build()).build());
     private final Map<String, AcceptedCancel> cancellations = new HashMap<>();
+    private final Map<String, AcceptedControl> controls = new HashMap<>();
     private RunSpec spec;
     private String snapshot;
     private String status = "QUEUED";
     private long version;
     private long sequence;
-    private long deadline;
     private boolean cancelRequested;
-    private boolean expired;
-    private CancellationScope deadlineScope;
     private String activeRunnerInvocation;
+    private PausePolicy policy;
+    private int turnsGranted, toolsGranted, attemptsGranted;
+    private long activeMillisGranted, activeMillisUsed, segmentStartedAt;
+    private int resumesApplied, extraTurnsApplied, extraToolCallsApplied, extraMinutesApplied;
+    private boolean paused;
+    private ResumeCommand resumeRequest;
+    private boolean stopRequested;
+    private String lastNote;
 
     @WorkflowVersioningBehavior(VersioningBehavior.PINNED)
     @Override public RunView run(RunSpec input) {
         spec = input;
         snapshot = input.seedSnapshotSha256();
-        while (!activities.acquireAdmission(input.runId())) {
-            if (cancelRequested) return terminal("CANCELLED");
-            Workflow.sleep(Duration.ofSeconds(1));
-        }
-        if (cancelRequested) return terminal("CANCELLED");
-        deadline = Workflow.currentTimeMillis() + input.limits().runMillis();
-        deadlineScope = Workflow.newCancellationScope(() -> {
-            try {
-                Workflow.sleep(Duration.ofMillis(input.limits().runMillis()));
-                expired = true;
-                if (activeRunnerInvocation != null) requestRunnerStop();
-            } catch (CanceledFailure stopped) {
-                // Terminal transition cancels only this timer scope.
-            }
-        });
-        Async.procedure(deadlineScope::run);
+        policy = input.policy();
+        turnsGranted = input.limits().modelTurns();
+        toolsGranted = input.limits().toolCalls();
+        attemptsGranted = input.limits().modelAttempts();
+        activeMillisGranted = input.limits().runMillis();
+        RunView refused = admit();
+        if (refused != null) return refused;
         transition("RUNNING");
         String conversation = activities.startConversation(input);
+        int turn = 0;
         int toolCount = 0;
-        int dispatchedModelAttempts = 0;
-        boolean remindedOfProtocol = false;
-        for (int turn = 1; turn <= input.limits().modelTurns(); turn++) {
+        int dispatched = 0;
+        while (true) {
             if (cancelRequested) return terminal("CANCELLED");
-            if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
+            String limit = turn >= turnsGranted || dispatched + input.limits().perTurnModelAttempts() > attemptsGranted
+                    ? "TURN_LIMIT" : outOfTime() ? "TIME_LIMIT" : null;
+            if (limit != null) {
+                Resumed resumed = pause(limit, null, conversation, turn, toolCount);
+                if (resumed.terminal() != null) return resumed.terminal();
+                conversation = resumed.conversation();
+                continue;
+            }
+            turn++;
             String invocation = input.runId() + ":turn-" + turn;
             ModelReply reply = null;
             for (int attempt = 1; attempt <= input.limits().perTurnModelAttempts(); attempt++) {
                 if (cancelRequested) return terminal("CANCELLED");
-                if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
-                if (++dispatchedModelAttempts > input.limits().modelAttempts())
-                    return terminal("LIMIT_EXHAUSTED");
-                long modelDeadline = Math.min(deadline,
-                        Workflow.currentTimeMillis() + input.limits().modelAttemptMillis());
+                dispatched++;
+                long modelDeadline = Workflow.currentTimeMillis() + input.limits().modelAttemptMillis();
                 try {
                     // A worker restart may redeliver this Activity to reconcile its durable receipt.
-                    // The Activity checks persisted cancellation and the deadline before another call.
                     reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
                             input.profileRevision(), conversation, modelDeadline));
                     break;
                 } catch (ActivityFailure error) {
                     if (cancelRequested) return terminal("CANCELLED");
-                    if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                     String failureType = modelFailureType(error);
                     if ("MODEL_CONTEXT_OVERFLOW".equals(failureType)) return terminal("CONTEXT_OVERFLOW");
                     if (!"MODEL_ATTEMPT_UNKNOWN".equals(failureType)) return terminal("INFRASTRUCTURE_FAILED");
@@ -90,25 +87,25 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             if (reply == null) return terminal("INFRASTRUCTURE_FAILED");
             if ("repository-v1".equals(input.benchmarkVersion()))
                 progress("MODEL_RECORDED", "model", "Model response recorded", null);
-            if (Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
-            if (reply.tools().isEmpty()) {
-                if (remindedOfProtocol) return terminal("FAILED");
-                remindedOfProtocol = true;
-                conversation = activities.appendConversation(conversation, reply, java.util.List.of()).blobId();
-                continue;
-            }
             var outcomes = new ArrayList<ToolOutcome>();
+            String budgetPause = null;
             for (int index = 0; index < reply.tools().size(); index++) {
                 if (cancelRequested) return terminal("CANCELLED");
-                if (++toolCount > input.limits().toolCalls()) return terminal("LIMIT_EXHAUSTED");
                 var request = reply.tools().get(index);
                 String toolInvocation = invocation + ":tool-" + (index + 1);
+                if (budgetPause == null)
+                    budgetPause = toolCount >= toolsGranted ? "TOOL_LIMIT" : outOfTime() ? "TIME_LIMIT" : null;
+                if (budgetPause != null) {
+                    outcomes.add(notRun(toolInvocation, request));
+                    continue;
+                }
+                toolCount++;
                 long cap = switch (request.name()) {
                     case "run_tests", "build" -> input.limits().buildTestMillis();
                     case "submit" -> input.limits().evaluationMillis();
                     default -> input.limits().fileOperationMillis();
                 };
-                long toolDeadline = Math.min(deadline, Workflow.currentTimeMillis() + cap);
+                long toolDeadline = Workflow.currentTimeMillis() + cap;
                 activeRunnerInvocation = "run_tests".equals(request.name()) || "build".equals(request.name())
                         ? toolInvocation : null;
                 ToolOutcome outcome;
@@ -117,12 +114,10 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                             toolInvocation, new SnapshotRef(snapshot), request, toolDeadline));
                 } catch (ActivityFailure failure) {
                     if (cancelRequested) return terminal("CANCELLED");
-                    if (expired || Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                     activeRunnerInvocation = null;
                     return terminal("INFRASTRUCTURE_FAILED");
                 }
                 if (cancelRequested) return terminal("CANCELLED");
-                if (Workflow.currentTimeMillis() >= deadline) return terminal("EXPIRED");
                 activeRunnerInvocation = null;
                 snapshot = outcome.snapshot().sha256();
                 outcomes.add(outcome);
@@ -138,16 +133,25 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 if (outcome.attemptedSubmission() && outcome.passed())
                     return terminal("repository-v1".equals(input.benchmarkVersion()) ? "READY_FOR_REVIEW" : "SUCCEEDED");
             }
-            conversation = activities.appendConversation(conversation, reply, outcomes).blobId();
+            ConversationStep step = activities.appendConversation(conversation, reply, outcomes);
+            conversation = step.blobId();
+            if (step.note() != null) lastNote = step.note();
+            if (step.nudged() != null) event("NUDGED", Map.of("signal", step.nudged(), "turn", turn,
+                    "summary", "Nudged: " + step.nudged().replace('_', ' ').toLowerCase()));
+            String reason = budgetPause != null ? budgetPause : step.stall() != null ? "STALLED" : null;
+            if (reason != null) {
+                Resumed resumed = pause(reason, step.stall(), conversation, turn, toolCount);
+                if (resumed.terminal() != null) return resumed.terminal();
+                conversation = resumed.conversation();
+            }
         }
-        return terminal("LIMIT_EXHAUSTED");
     }
 
     @Override public CommandResult cancel(CancelCommand command) {
         var prior = cancellations.get(command.commandId());
         if (prior != null) return prior.expectedVersion() == command.expectedVersion() ? prior.result()
                 : new CommandResult(spec.runId(), command.commandId(), "REJECTED_CONFLICT");
-        if (terminalStatus(status)) return new CommandResult(spec.runId(), command.commandId(), "REJECTED_TERMINAL");
+        if (RunStatus.isTerminal(status)) return new CommandResult(spec.runId(), command.commandId(), "REJECTED_TERMINAL");
         if (command.expectedVersion() != version)
             return new CommandResult(spec.runId(), command.commandId(), "REJECTED_VERSION");
         cancelRequested = true;
@@ -164,7 +168,6 @@ public class CodingWorkflowImpl implements CodingWorkflow {
     }
 
     private RunView terminal(String endStatus) {
-        if (deadlineScope != null) deadlineScope.cancel();
         if (("CANCELLED".equals(endStatus) || "EXPIRED".equals(endStatus))
                 && activeRunnerInvocation != null) {
             transition("STOPPING");
@@ -203,14 +206,6 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 type, stage, summary, artifactDigest);
     }
 
-    private static boolean terminalStatus(String status) {
-        return switch (status) {
-            case "SUCCEEDED", "READY_FOR_REVIEW", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
-                    "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW" -> true;
-            default -> false;
-        };
-    }
-
     private static String modelFailureType(Throwable failure) {
         for (Throwable current = failure; current != null; current = current.getCause()) {
             if (current instanceof ApplicationFailure application) return application.getType();
@@ -224,6 +219,137 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 ActivityOptions.newBuilder().setStartToCloseTimeout(Duration.ofMillis(millis))
                         .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(maxAttempts).build())
                         .build());
+    }
+
+    private record Resumed(RunView terminal, String conversation) {}
+    private record AcceptedControl(Object payload, CommandResult result) {}
+
+    private RunView admit() {
+        while (!activities.acquireAdmission(spec.runId())) {
+            if (cancelRequested) return terminal("CANCELLED");
+            Workflow.sleep(Duration.ofSeconds(1));
+        }
+        if (cancelRequested) return terminal("CANCELLED");
+        segmentStartedAt = Workflow.currentTimeMillis();
+        return null;
+    }
+
+    private boolean outOfTime() {
+        return activeMillisUsed + Workflow.currentTimeMillis() - segmentStartedAt >= activeMillisGranted;
+    }
+
+    private Resumed pause(String reason, WorkingMemory.StallVerdict stall, String conversation, int turn, int tools) {
+        activeMillisUsed += Workflow.currentTimeMillis() - segmentStartedAt;
+        if (resumesApplied >= policy.maxResumes()) {
+            // No resume could be accepted, so the run ends with its pause reason instead of waiting.
+            event("STOPPED", Map.of("reason", reason, "byOperator", false, "summary", "Stopped: no resumes left"));
+            return new Resumed(terminal(pauseOutcome(reason)), null);
+        }
+        activities.releaseAdmission(spec.runId());
+        transition("PAUSED");
+        var detail = new java.util.LinkedHashMap<String, Object>();
+        detail.put("reason", reason);
+        detail.put("signal", stall == null ? null : stall.signal());
+        detail.put("sinceTurn", stall == null ? null : stall.sinceTurn());
+        detail.put("evidence", stall == null ? java.util.List.of() : stall.evidence());
+        detail.put("turnsUsed", turn);
+        detail.put("turnsGranted", turnsGranted);
+        detail.put("toolCallsUsed", tools);
+        detail.put("toolCallsGranted", toolsGranted);
+        detail.put("activeMillisUsed", activeMillisUsed);
+        detail.put("activeMillisGranted", activeMillisGranted);
+        detail.put("note", lastNote);
+        detail.put("waitUntil", Instant.ofEpochMilli(Workflow.currentTimeMillis() + policy.waitMillis()).toString());
+        detail.put("summary", "Paused: " + reason.replace('_', ' ').toLowerCase());
+        event("PAUSED", detail);
+        resumeRequest = null;
+        stopRequested = false;
+        paused = true;
+        boolean signalled = Workflow.await(Duration.ofMillis(policy.waitMillis()),
+                () -> resumeRequest != null || stopRequested || cancelRequested);
+        paused = false;
+        if (cancelRequested) return new Resumed(terminal("CANCELLED"), null);
+        if (!signalled || stopRequested) {
+            event("STOPPED", Map.of("reason", reason, "byOperator", signalled,
+                    "summary", signalled ? "Stopped by operator" : "Stopped: waiting limit reached"));
+            return new Resumed(terminal(pauseOutcome(reason)), null);
+        }
+        ResumeCommand resume = resumeRequest;
+        turnsGranted += resume.extraTurns();
+        attemptsGranted += 2 * resume.extraTurns();
+        toolsGranted += resume.extraToolCalls();
+        activeMillisGranted += resume.extraMinutes() * 60_000L;
+        String next = activities.resumeConversation(conversation, resume.hint());
+        var resumed = new java.util.LinkedHashMap<String, Object>();
+        resumed.put("commandId", resume.commandId());
+        resumed.put("extraTurns", resume.extraTurns());
+        resumed.put("extraToolCalls", resume.extraToolCalls());
+        resumed.put("extraMinutes", resume.extraMinutes());
+        resumed.put("hint", resume.hint());
+        resumed.put("summary", resume.hint() == null ? "Resumed with more budget" : "Resumed with an operator hint");
+        event("RESUMED", resumed);
+        transition("QUEUED");
+        RunView refused = admit();
+        if (refused != null) return new Resumed(refused, null);
+        transition("RUNNING");
+        return new Resumed(null, next);
+    }
+
+    private static String pauseOutcome(String reason) {
+        return switch (reason) {
+            case "STALLED" -> "STALLED";
+            case "TIME_LIMIT" -> "EXPIRED";
+            default -> "LIMIT_EXHAUSTED";
+        };
+    }
+
+    private ToolOutcome notRun(String invocationId, com.brianmehrman.harness.model.ToolRequest request) {
+        return new ToolOutcome(invocationId, request.providerCallId(), request.name(), new SnapshotRef(snapshot),
+                "{\"status\":\"ERROR\",\"code\":\"BUDGET_PAUSED\",\"detail\":\"Not run: the run paused at its budget. " +
+                        "Repeat this call after the run resumes.\"}", false, false);
+    }
+
+    private void event(String type, Map<String, Object> detail) {
+        sequence++;
+        activities.publishEvent(spec.runId(), sequence, version, status, snapshot, type, detail);
+    }
+
+    @Override public CommandResult resume(ResumeCommand command) {
+        return control(command.commandId(), command.expectedVersion(), command, () -> {
+            if (resumesApplied >= policy.maxResumes() || command.extraTurns() > policy.resumeTurns() ||
+                    command.extraToolCalls() > policy.resumeToolCalls() || command.extraMinutes() > policy.resumeMinutes() ||
+                    extraTurnsApplied + command.extraTurns() > policy.totalExtraTurns() ||
+                    extraToolCallsApplied + command.extraToolCalls() > policy.totalExtraToolCalls() ||
+                    extraMinutesApplied + command.extraMinutes() > policy.totalExtraMinutes())
+                return "REJECTED_LIMIT";
+            resumesApplied++;
+            extraTurnsApplied += command.extraTurns();
+            extraToolCallsApplied += command.extraToolCalls();
+            extraMinutesApplied += command.extraMinutes();
+            resumeRequest = command;
+            return "APPLIED";
+        });
+    }
+
+    @Override public CommandResult stop(StopCommand command) {
+        return control(command.commandId(), command.expectedVersion(), command, () -> {
+            stopRequested = true;
+            return "APPLIED";
+        });
+    }
+
+    private CommandResult control(String commandId, long expectedVersion, Object payload,
+            java.util.function.Supplier<String> apply) {
+        var prior = controls.get(commandId);
+        if (prior != null) return prior.payload().equals(payload) ? prior.result()
+                : new CommandResult(spec.runId(), commandId, "REJECTED_CONFLICT");
+        if (RunStatus.isTerminal(status)) return new CommandResult(spec.runId(), commandId, "REJECTED_TERMINAL");
+        if (!paused || resumeRequest != null || stopRequested)
+            return new CommandResult(spec.runId(), commandId, "REJECTED_STATE");
+        if (expectedVersion != version) return new CommandResult(spec.runId(), commandId, "REJECTED_VERSION");
+        var result = new CommandResult(spec.runId(), commandId, apply.get());
+        controls.put(commandId, new AcceptedControl(payload, result));
+        return result;
     }
 
     private record AcceptedCancel(long expectedVersion, CommandResult result) {}

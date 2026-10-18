@@ -4,6 +4,7 @@ import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.RunStatus;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.SnapshotRef;
 import java.nio.charset.StandardCharsets;
@@ -152,13 +153,12 @@ public class RepositoryWorkService {
         result.put("version", row[6]);
         result.put("stale", (Boolean)row[7] || (Boolean)row[12] &&
                 ((java.time.Instant)row[13]).isBefore(java.time.Instant.now().minusSeconds(15)) &&
-                !List.of("READY_FOR_REVIEW", "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED",
-                        "LIMIT_EXHAUSTED", "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5]));
+                !RunStatus.isTerminal((String)row[5]));
         result.put("lastSequence", row[8]);
         String reviewBlobId = (String)row[9];
         String finalSnapshot = (String)row[10];
-        if (reviewBlobId == null && List.of("FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
-                "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5])) {
+        if (reviewBlobId == null && RunStatus.isTerminal((String)row[5]) &&
+                !"READY_FOR_REVIEW".equals(row[5]) && !"SUCCEEDED".equals(row[5])) {
             var unfinished = reviews.packageUnsubmitted(runId, new SnapshotRef((String)row[14]));
             reviewBlobId = unfinished.diffBlobId();
             finalSnapshot = unfinished.finalSha256();

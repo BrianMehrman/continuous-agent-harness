@@ -114,11 +114,7 @@ public class RunActivitiesImpl implements RunActivities {
             throw ApplicationFailure.newNonRetryableFailure("Model attempt has an unknown outcome", "MODEL_ATTEMPT_UNKNOWN");
         String status = projections.view(call.runId()).status();
         if (System.currentTimeMillis() >= call.deadlineEpochMillis() ||
-                "CANCEL_REQUESTED".equals(status) || "STOPPING".equals(status) ||
-                "CANCELLED".equals(status) || "EXPIRED".equals(status) ||
-                "SUCCEEDED".equals(status) || "READY_FOR_REVIEW".equals(status) || "FAILED".equals(status) ||
-                "LIMIT_EXHAUSTED".equals(status) || "INFRASTRUCTURE_FAILED".equals(status) ||
-                "CONTEXT_OVERFLOW".equals(status)) {
+                RunStatus.isTerminal(status) || "CANCEL_REQUESTED".equals(status) || "STOPPING".equals(status)) {
             attempts.abandon(lease);
             throw ApplicationFailure.newNonRetryableFailure(
                     "Model attempt was not dispatched before its run state or deadline changed",
@@ -187,10 +183,11 @@ public class RunActivitiesImpl implements RunActivities {
     @Override public void publishEvent(String runId, long sequence, long version, String status,
             String snapshotSha256, String type, Map<String, Object> detail) {
         var payload = new LinkedHashMap<String, Object>();
+        if (detail != null) payload.putAll(detail);
+        // The authoritative run fields are written last so a detail key can never replace them.
         payload.put("version", version);
         payload.put("status", status);
         payload.put("snapshotSha256", snapshotSha256);
-        payload.putAll(detail);
         String blob = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(payload));
         projections.append(new RunEvent(runId, sequence, runId + ":event-" + sequence, type, blob));
     }

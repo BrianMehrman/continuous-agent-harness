@@ -9,5 +9,7 @@ import io.temporal.workflow.WorkflowMethod;
 public interface CodingWorkflow {
     @WorkflowMethod RunView run(RunSpec spec);
     @UpdateMethod CommandResult cancel(CancelCommand command);
+    @UpdateMethod CommandResult resume(ResumeCommand command);
+    @UpdateMethod CommandResult stop(StopCommand command);
     @QueryMethod RunView current();
 }

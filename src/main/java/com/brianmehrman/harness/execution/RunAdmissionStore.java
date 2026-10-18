@@ -46,12 +46,8 @@ public class RunAdmissionStore {
         var reserved = reservedRunId();
         if (reserved.isEmpty()) return false;
         var description = gateway.describe(reserved.get());
-        if (description == null || !switch (description.status()) {
-            case "SUCCEEDED", "READY_FOR_REVIEW", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
-                    "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW",
-                    "WORKFLOW_EXECUTION_STATUS_COMPLETED" -> true;
-            default -> false;
-        }) return false;
+        if (description == null || !(RunStatus.isTerminal(description.status()) ||
+                "WORKFLOW_EXECUTION_STATUS_COMPLETED".equals(description.status()))) return false;
         return releaseAfterTerminalTransition(reserved.get());
     }
 
