@@ -381,3 +381,29 @@ Five live runs on `qwen3.5:9b` have failed. Each change fixed the failure it tar
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run5` schema were preserved.
 
+## M1 acceptance: stall detection and pause-at-limit
+
+Date: 2026-10-18 UTC. A real local Ollama run against the fresh `task-tracker-v1` starter, **not benchmark acceptance**. Design: [M1 spec](../superpowers/specs/2026-10-17-stall-detection-and-pause-design.md).
+
+### Setup
+
+- Application commit `1bc471e` on `feat/m1-stall-detection-and-pause`; packaged JAR SHA-256 `ec9aa49ec4ef70c76179e501a0058e86d4f78123c946e91e2fe8fd5e02e39598`. `./gradlew build` passed on that commit on 2026-10-18 (61 unit, 18 integration tests; the opt-in `LocalOllamaProbeIT` skipped).
+- Default Compose project, PostgreSQL schema `m1_pause_run1`, Temporal namespace `m1-pause1`, worker build selected as current `coding-harness` version for that namespace. Same `qwen3.5:9b` digest and frozen profile `ollama-26b3aaac3a857d206307c8cd469c75951c047c00eaa7c729318d07853ac3b129` as the working-memory runs; default pause policy (thresholds 3/3/6, 7-day waiting limit).
+- Run `run-d75ef2ece28698e83756cbf20cbf2e5aaf7f62119370c37ab5018cc76e5855ec`, started 00:53:11.
+
+### What happened
+
+1. **Nudge, then pause.** The model built its implementation by turn 11 and wrote tests, which failed at turns 16 and 20. From turn 21 it mostly reread files. At turn 26 the harness recorded `NUDGED` (`NO_NEW_FACTS`). The model wrote one change at turn 27, then returned to rereading. At 01:07:53, turn 33, the run paused: reason `STALLED`, signal `NO_NEW_FACTS`, evidence "no changed write, new check result, or new read since turn 27", allowance 33/40 turns and 34/100 tool calls, 14.6 minutes active. The pause record carried the model's last note ("Progress: Read the test file to understand what's expected. Next: Read the current TaskTracker.java implementation…"). The execution slot was released.
+2. **Operator view.** While paused, `GET /api/work` listed the run under `pausedRuns`, and the served console bundle contained the new banner and pause panel. A visual browser check was not performed in this session.
+3. **Resume without a hint.** At 01:08:15 `harness.py resume --turns 20` (command `m1-pause1-resume-1`) was delivered and applied; the run requeued, was readmitted, and was `RUNNING` again at 01:08:20. The run is labeled **extended**.
+4. **Second pause.** At 01:09:21, turn 39, it paused again with `NO_NEW_FACTS`. Since turn 29 the model had alternated `read_file` of the test file and the implementation with byte-identical inputs (5,048 and 6,148 tokens) while three tests failed. Because a resume without a hint keeps earlier nudges, the next firing paused immediately.
+5. **Stop.** `harness.py stop` (command `m1-pause1-stop-1`) ended the run `STALLED`. Event trail: `NUDGED, PAUSED, RESUMED, PAUSED, STOPPED`. All nine runner invocations were recorded and cleaned. No submit, so no evaluator verdict.
+
+### Assessment
+
+M1 behaved as specified: a fixed-point loop that previously burned the remaining turns and minutes (Run 5 used its full 30 minutes) was detected within six turns, paused with evidence, and was resumable and stoppable through durable commands. A budget extension alone did not help this model; the next lever is a hint (assisted) or, per the roadmap, role handoff to a project manager (M4) and stronger models (M2).
+
+Not exercised live: a repository work item paused, resumed and reaching "Ready for review" (covered by `CodingWorkflowTest` and `ApiWorkflowIT`), and the browser view of the banner and pause panel.
+
+The Java roles were stopped after the run; the default database volume, schema `m1_pause_run1` and namespace `m1-pause1` were preserved.
+

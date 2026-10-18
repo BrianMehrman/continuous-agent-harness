@@ -114,6 +114,18 @@ class WorkApiIT {
         assertEquals(1, jdbc.queryForObject("select count(*) from run_command where command_id=? and kind='CANCEL'",
                 Integer.class, deliveredCancelId));
         jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", firstId);
+
+        // A paused item is listed regardless of age and resumes only against its current version.
+        jdbc.update("update run_command set delivered_at=null where command_id=?", firstCommand); // version from projection, not Temporal
+        jdbc.update("update run_projection set status='PAUSED',version=3 where run_id=?", firstId);
+        assertEquals(firstId, json.readTree(request("GET", "/api/work", null).body()).path("paused").get(0).path("workId").asText());
+        String stale = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 2, "extraTurns", 1));
+        assertEquals(409, request("POST", "/api/work/" + firstId + "/resume", stale).statusCode());
+        String current = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 3, "extraTurns", 1));
+        assertEquals(202, request("POST", "/api/work/" + firstId + "/resume", current).statusCode());
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", firstId);
     }
 
     @Test void locallyCancelledStartIsNeverDeliveredAndInFlightDeliveryRefusesCancel() throws Exception {
@@ -154,6 +166,24 @@ class WorkApiIT {
         assertTrue(admission.releaseAfterTerminalTransition(first));
         assertTrue(admission.acquire(second));
         assertTrue(admission.releaseAfterTerminalTransition(second));
+
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", second);
+
+        // A resumed run rejoins the queue by its resume time, behind work that queued earlier.
+        String thirdCommand = "work-order-" + UUID.randomUUID();
+        String third = create(thirdCommand, profile);
+        jdbc.update("update run_command set delivered_at=now() where command_id=?", thirdCommand);
+        jdbc.update("update run_projection set status='QUEUED' where run_id=?", first);
+        jdbc.update("insert into run_command(command_id,run_id,kind,payload_sha256,payload_json,delivered_at,outcome_json) " +
+                        "values (?,?,'RESUME',?,'{}'::jsonb,now(),?::jsonb)",
+                "resume-" + UUID.randomUUID(), first, "0".repeat(64),
+                "{\"runId\":\"" + first + "\",\"commandId\":\"x\",\"deliveryStatus\":\"APPLIED\"}");
+        assertFalse(admission.acquire(first), "The resumed run waits behind work queued before its resume");
+        assertTrue(admission.acquire(third));
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", third);
+        assertTrue(admission.releaseAfterTerminalTransition(third));
+        assertTrue(admission.acquire(first));
+        assertTrue(admission.releaseAfterTerminalTransition(first));
     }
 
     @Test void repositoryEditProducesIsolatedReviewDiffWithFailedCheckVisible() throws Exception {

@@ -3,8 +3,11 @@ package com.brianmehrman.harness.runs;
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.CodingWorkflow;
 import com.brianmehrman.harness.execution.CommandResult;
+import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.RunStatus;
 import com.brianmehrman.harness.execution.RunView;
+import com.brianmehrman.harness.execution.StopCommand;
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy;
 import io.temporal.api.enums.v1.WorkflowIdReusePolicy;
 import io.temporal.client.WorkflowClient;
@@ -14,6 +17,7 @@ import io.temporal.client.WorkflowOptions;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -37,7 +41,7 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
                 .setWorkflowIdConflictPolicy(WorkflowIdConflictPolicy.WORKFLOW_ID_CONFLICT_POLICY_FAIL)
                 .setWorkflowIdReusePolicy(WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
                 .setMemo(Map.of("inputSha256", spec.inputSha256()))
-                .setWorkflowExecutionTimeout(Duration.ofDays(8)).build();
+                .setWorkflowExecutionTimeout(Duration.ofDays(40)).build();
         var workflow = client.newWorkflowStub(CodingWorkflow.class, options);
         try {
             WorkflowClient.start(workflow::run, spec);
@@ -51,16 +55,28 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
     }
 
     @Override public CommandResult cancel(String runId, CancelCommand command) {
+        return update(runId, command.commandId(), stub -> stub.cancel(command));
+    }
+
+    @Override public CommandResult resume(String runId, ResumeCommand command) {
+        return update(runId, command.commandId(), stub -> stub.resume(command));
+    }
+
+    @Override public CommandResult stop(String runId, StopCommand command) {
+        return update(runId, command.commandId(), stub -> stub.stop(command));
+    }
+
+    private CommandResult update(String runId, String commandId,
+            java.util.function.Function<CodingWorkflow, CommandResult> call) {
         WorkflowDescription described = describe(runId);
         if (described == null) throw new IllegalArgumentException("Unknown workflow");
-        if (terminal(described.status()))
-            return new CommandResult(runId, command.commandId(), "REJECTED_TERMINAL");
+        if (terminal(described.status())) return new CommandResult(runId, commandId, "REJECTED_TERMINAL");
         try {
-            return client.newWorkflowStub(CodingWorkflow.class, runId).cancel(command);
+            return call.apply(client.newWorkflowStub(CodingWorkflow.class, runId));
         } catch (WorkflowNotFoundException closedDuringUpdate) {
             WorkflowDescription latest = describe(runId);
             if (latest != null && terminal(latest.status()))
-                return new CommandResult(runId, command.commandId(), "REJECTED_TERMINAL");
+                return new CommandResult(runId, commandId, "REJECTED_TERMINAL");
             throw closedDuringUpdate;
         }
     }
@@ -100,13 +116,8 @@ public class TemporalWorkflowGateway implements WorkflowGateway {
     }
 
     private static boolean terminal(String status) {
-        return switch (status) {
-            case "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
-                    "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW",
-                    "WORKFLOW_EXECUTION_STATUS_COMPLETED", "WORKFLOW_EXECUTION_STATUS_FAILED",
-                    "WORKFLOW_EXECUTION_STATUS_CANCELED", "WORKFLOW_EXECUTION_STATUS_TERMINATED",
-                    "WORKFLOW_EXECUTION_STATUS_TIMED_OUT" -> true;
-            default -> false;
-        };
+        return RunStatus.isTerminal(status) || Set.of("WORKFLOW_EXECUTION_STATUS_COMPLETED",
+                "WORKFLOW_EXECUTION_STATUS_FAILED", "WORKFLOW_EXECUTION_STATUS_CANCELED",
+                "WORKFLOW_EXECUTION_STATUS_TERMINATED", "WORKFLOW_EXECUTION_STATUS_TIMED_OUT").contains(status);
     }
 }

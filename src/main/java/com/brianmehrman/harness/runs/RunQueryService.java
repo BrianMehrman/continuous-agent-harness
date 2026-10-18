@@ -51,7 +51,11 @@ public class RunQueryService {
                 (rs, row) -> new CommandView(rs.getString(1), rs.getString(2),
                         rs.getBoolean(3) ? "DELIVERED" : "ACCEPTED",
                         rs.getString(4) == null ? null : json.readTree(rs.getString(4)), rs.getString(5)), runId);
-        return Map.of("projection", view, "commands", commands);
+        var result = new java.util.LinkedHashMap<String, Object>();
+        result.put("projection", view);
+        result.put("commands", commands);
+        result.putAll(PauseHistory.read(jdbc, blobs, runId, view.status()));
+        return result;
     }
 
     public List<EventView> events(String runId, long after) {

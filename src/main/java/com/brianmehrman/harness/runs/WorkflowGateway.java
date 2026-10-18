@@ -2,7 +2,9 @@ package com.brianmehrman.harness.runs;
 
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.CommandResult;
+import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.StopCommand;
 
 /** Task 7 supplies the Temporal implementation; Task 6 owns recoverable delivery. */
 public interface WorkflowGateway {
@@ -16,6 +18,12 @@ public interface WorkflowGateway {
     StartReceipt start(RunSpec spec);
     CommandResult cancel(String runId, CancelCommand command);
     WorkflowDescription describe(String runId);
+    default CommandResult resume(String runId, ResumeCommand command) {
+        throw new UnsupportedOperationException("Resume delivery not available");
+    }
+    default CommandResult stop(String runId, StopCommand command) {
+        throw new UnsupportedOperationException("Stop delivery not available");
+    }
 
     /** Read persisted start identity without requiring a live workflow query. */
     default WorkflowIdentity identity(String runId) {

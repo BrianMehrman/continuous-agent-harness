@@ -161,6 +161,9 @@ class RepositoryTaskIT {
                 assertTrue(WorkingMemory.fits(lastSeen), "Every model call must stay within the frozen budget");
             }
             assertEquals(3, lastSeen.state().turn());
+            assertNotNull(lastSeen.state().progress(), "M1 runs carry stall progress");
+            assertEquals(WorkingMemory.Thresholds.defaults(), lastSeen.state().progress().thresholds(),
+                    "Thresholds come from the frozen pause policy");
             assertTrue(lastSeen.state().files().stream().anyMatch(f -> f.path().equals(PROBE) && f.written()));
             assertEquals("build", lastSeen.state().lastCheck().tool());
             assertTrue(lastSeen.system().contains("Progress:"), "The protocol rules reach repository runs");

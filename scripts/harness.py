@@ -103,6 +103,18 @@ def parser():
     cancel.add_argument("run_id")
     cancel.add_argument("--expected-version", type=int, required=True)
     cancel.add_argument("--command-id", default=None)
+    resume = commands.add_parser("resume")
+    resume.add_argument("run_id")
+    resume.add_argument("--expected-version", type=int, required=True)
+    resume.add_argument("--command-id", default=None)
+    resume.add_argument("--turns", type=int, default=0)
+    resume.add_argument("--tools", type=int, default=0)
+    resume.add_argument("--minutes", type=int, default=0)
+    resume.add_argument("--hint", default=None)
+    stop = commands.add_parser("stop")
+    stop.add_argument("run_id")
+    stop.add_argument("--expected-version", type=int, required=True)
+    stop.add_argument("--command-id", default=None)
     download = commands.add_parser("download")
     download.add_argument("run_id")
     download.add_argument("digest")
@@ -137,6 +149,17 @@ def main(argv=None):
         return 0
     elif args.command == "cancel":
         result = client.request("POST", f"/api/runs/{quote(args.run_id)}/cancel", {
+            "commandId": args.command_id or str(uuid.uuid4()),
+            "expectedVersion": args.expected_version,
+        })
+    elif args.command == "resume":
+        body = {"commandId": args.command_id or str(uuid.uuid4()), "expectedVersion": args.expected_version,
+                "extraTurns": args.turns, "extraToolCalls": args.tools, "extraMinutes": args.minutes}
+        if args.hint is not None:
+            body["hint"] = args.hint
+        result = client.request("POST", f"/api/runs/{quote(args.run_id)}/resume", body)
+    elif args.command == "stop":
+        result = client.request("POST", f"/api/runs/{quote(args.run_id)}/stop", {
             "commandId": args.command_id or str(uuid.uuid4()),
             "expectedVersion": args.expected_version,
         })

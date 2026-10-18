@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -67,6 +68,30 @@ class RunApiIT {
         assertEquals(409, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
         cancel = json.writeValueAsString(Map.of("commandId", "cancel-" + UUID.randomUUID(), "expectedVersion", 2));
         assertEquals(202, request("POST", "/api/runs/" + runId + "/cancel", cancel).statusCode());
+        String resume = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 2, "extraTurns", 5));
+        assertEquals(409, request("POST", "/api/runs/" + runId + "/resume", resume).statusCode(), "Only a paused run resumes");
+        typedEvent(runId, 3, 3, "PAUSED", "PAUSED", Map.of("reason", "TURN_LIMIT", "evidence", List.of(),
+                "turnsUsed", 40, "turnsGranted", 40, "summary", "Paused: turn limit"));
+        String tooMuch = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 3, "extraTurns", 41));
+        assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", tooMuch).statusCode());
+        String noExtension = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 3, "extraTurns", 0, "extraToolCalls", 5));
+        assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", noExtension).statusCode(),
+                "A resume must extend the limit that was reached");
+        String resumeId = "resume-" + UUID.randomUUID();
+        String good = json.writeValueAsString(Map.of("commandId", resumeId, "expectedVersion", 3,
+                "extraTurns", 5, "hint", "Fix the definite-assignment error first"));
+        assertEquals(202, request("POST", "/api/runs/" + runId + "/resume", good).statusCode());
+        assertEquals(202, request("POST", "/api/runs/" + runId + "/resume", good).statusCode(), "Same command, same answer");
+        assertEquals(409, request("POST", "/api/runs/" + runId + "/resume",
+                good.replace("first", "second")).statusCode(), "A reused ID with different input conflicts");
+        String stop = json.writeValueAsString(Map.of("commandId", "stop-" + UUID.randomUUID(), "expectedVersion", 3));
+        assertEquals(202, request("POST", "/api/runs/" + runId + "/stop", stop).statusCode());
+        JsonNode paused = json.readTree(request("GET", "/api/runs/" + runId, null).body());
+        assertEquals("TURN_LIMIT", paused.path("pause").path("reason").asText());
+        assertEquals("RESUME", paused.path("commands").get(2).path("kind").asText());
         jdbc.update("update run_command set delivered_at=now(),outcome_json='{}'::jsonb where command_id=?", commandId);
         JsonNode delivered = json.readTree(request("GET", "/api/runs/" + runId, null).body()).path("commands").get(0);
         assertEquals("DELIVERED", delivered.path("deliveryStatus").asText());
@@ -111,6 +136,18 @@ class RunApiIT {
                 .POST(HttpRequest.BodyPublishers.ofString("x=y")).build();
         assertEquals(415, http.send(form, HttpResponse.BodyHandlers.ofString()).statusCode());
         assertFalse(request("GET", "/api/profiles", null).body().contains("credentialReference"));
+    }
+
+    private void typedEvent(String runId, long sequence, long version, String status, String type,
+            Map<String, Object> detail) {
+        var payload = new java.util.LinkedHashMap<String, Object>(detail);
+        payload.put("version", version);
+        payload.put("status", status);
+        String digest = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(payload));
+        jdbc.update("insert into run_event(run_id,sequence,event_id,type,payload_blob_id) values (?,?,?,?,?)",
+                runId, sequence, runId + ":api-test-" + sequence, type, digest);
+        jdbc.update("update run_projection set version=?,status=?,last_sequence=? where run_id=?",
+                version, status, sequence, runId);
     }
 
 private String event(String runId, long sequence, long version, String status) {

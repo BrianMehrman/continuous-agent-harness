@@ -2,11 +2,15 @@ package com.brianmehrman.harness.api;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.brianmehrman.harness.execution.CodingWorkflow;
 import com.brianmehrman.harness.execution.CodingWorkflowImpl;
 import com.brianmehrman.harness.execution.UnversionedCodingWorkflow;
+import com.brianmehrman.harness.execution.ConversationStep;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.RunActivities;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.RunView;
+import com.brianmehrman.harness.execution.StopCommand;
 import com.brianmehrman.harness.execution.ToolInvocation;
 import com.brianmehrman.harness.execution.ToolOutcome;
 import com.brianmehrman.harness.model.ModelCall;
@@ -17,6 +21,7 @@ import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
 import com.brianmehrman.harness.runs.RunProjectionRepository;
 import io.temporal.client.WorkflowClient;
+import io.temporal.client.WorkflowStub;
 import io.temporal.worker.WorkerFactory;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -95,13 +100,14 @@ class ApiWorkflowIT {
             while (System.nanoTime() < deadline) {
                 var get = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/runs/" + run)).GET().build();
                 detail = json.readTree(http.send(get, HttpResponse.BodyHandlers.ofString()).body());
-                if ("FAILED".equals(detail.path("projection").path("status").asText()) &&
+                if ("PAUSED".equals(detail.path("projection").path("status").asText()) &&
                         detail.path("projection").path("lastSequence").asLong() > 0 &&
                         !detail.path("projection").path("stale").asBoolean()) break;
                 Thread.sleep(100);
             }
             assertNotNull(detail);
-            assertEquals("FAILED", detail.path("projection").path("status").asText());
+            // Two text-only replies use the 2-turn allowance, so the run pauses for an operator.
+            assertEquals("PAUSED", detail.path("projection").path("status").asText());
             assertFalse(detail.path("projection").path("stale").asBoolean());
             assertEquals("DELIVERED", detail.path("commands").get(0).path("deliveryStatus").asText());
             assertEquals("STARTED", detail.path("commands").get(0)
@@ -118,6 +124,11 @@ class ApiWorkflowIT {
             assertTrue(json.readTree(artifact.body()).path("status").isTextual());
             assertEquals(run, json.readTree(http.send(request, HttpResponse.BodyHandlers.ofString()).body())
                     .path("runId").asText());
+            var workflow = client.newWorkflowStub(CodingWorkflow.class, run);
+            assertEquals("APPLIED", workflow.stop(new StopCommand("api-workflow-stop", workflow.current().version()))
+                    .deliveryStatus());
+            assertEquals("LIMIT_EXHAUSTED", WorkflowStub.fromTyped(workflow)
+                    .getResult(10, java.util.concurrent.TimeUnit.SECONDS, RunView.class).status());
         } finally {
             factory.shutdownNow();
             factory.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
@@ -139,8 +150,9 @@ class ApiWorkflowIT {
             return new ModelReply("scripted response", List.of(), 1L, 1L, "stop");
         }
         @Override public ToolOutcome invokeTool(ToolInvocation call) { throw new AssertionError("No tool requested"); }
-        @Override public String appendConversation(String previousBlobId, ModelReply reply,
-                List<ToolOutcome> outcomes) { return previousBlobId; }
+        @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
+                List<ToolOutcome> outcomes) { return new ConversationStep(previousBlobId, null, null, null); }
+        @Override public String resumeConversation(String blobId, String hint) { return blobId; }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) {
             String digest = blobs.put("application/vnd.harness.run-event+json", json.writeValueAsBytes(

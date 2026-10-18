@@ -13,11 +13,14 @@ public interface RunActivities {
     String startConversation(RunSpec spec);
     ModelReply callModel(ModelCall call);
     ToolOutcome invokeTool(ToolInvocation call);
-    String appendConversation(String previousBlobId, ModelReply reply, List<ToolOutcome> outcomes);
+    ConversationStep appendConversation(String previousBlobId, ModelReply reply, List<ToolOutcome> outcomes);
+    String resumeConversation(String blobId, String hint);
     void publish(String runId, long sequence, long version, String status,
             String snapshotSha256, String terminalResultBlobId);
     default void publishProgress(String runId, long sequence, long version, String status,
             String snapshotSha256, String type, String stage, String summary, String artifactDigest) {}
+    default void publishEvent(String runId, long sequence, long version, String status,
+            String snapshotSha256, String type, java.util.Map<String, Object> detail) {}
     /** Request a stop and report whether the runner has persisted its result and finished cleanup. */
     boolean cancelRunner(String invocationId);
 }

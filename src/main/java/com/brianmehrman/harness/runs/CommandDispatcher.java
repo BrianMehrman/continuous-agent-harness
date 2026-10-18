@@ -2,7 +2,9 @@ package com.brianmehrman.harness.runs;
 
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.CommandResult;
+import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.StopCommand;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,7 +39,12 @@ public class CommandDispatcher {
         try {
             String outcome = switch (claim.kind()) {
                 case "START" -> deliverStart(claim);
-                case "CANCEL" -> deliverCancel(claim);
+                case "CANCEL" -> deliver(claim, json.readValue(claim.payloadJson(), CancelCommand.class),
+                        command -> gateway.cancel(claim.runId(), command));
+                case "RESUME" -> deliver(claim, json.readValue(claim.payloadJson(), ResumeCommand.class),
+                        command -> gateway.resume(claim.runId(), command));
+                case "STOP" -> deliver(claim, json.readValue(claim.payloadJson(), StopCommand.class),
+                        command -> gateway.stop(claim.runId(), command));
                 default -> throw new IllegalStateException("Unknown outbox command kind");
             };
             Integer acknowledged = transactions.execute(status -> jdbc.update(
@@ -104,12 +111,11 @@ public class CommandDispatcher {
         return json.writeValueAsString(receipt);
     }
 
-    private String deliverCancel(Claim claim) {
-        CancelCommand command = json.readValue(claim.payloadJson(), CancelCommand.class);
-        CommandResult result = gateway.cancel(claim.runId(), command);
+    private <T> String deliver(Claim claim, T command, java.util.function.Function<T, CommandResult> send) {
+        CommandResult result = send.apply(command);
         if (result == null || !claim.runId().equals(result.runId()) ||
                 !claim.commandId().equals(result.commandId()))
-            throw new IllegalStateException("Workflow cancellation identity mismatch");
+            throw new IllegalStateException("Workflow command identity mismatch");
         return json.writeValueAsString(result);
     }
 

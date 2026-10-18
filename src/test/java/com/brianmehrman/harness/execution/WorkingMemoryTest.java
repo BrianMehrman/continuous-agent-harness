@@ -107,6 +107,59 @@ class WorkingMemoryTest {
         assertTrue(((Map<?, ?>) messages.get(2)).get("content").toString().startsWith("Working state after turn 20"));
         assertEquals("assistant", ((Map<?, ?>) messages.get(3)).get("role"));
         assertEquals("tool", ((Map<?, ?>) messages.get(4)).get("role"));
+
+        // M1: stall signals. Each phase starts from a resume, which restarts counters and clears nudges after a hint.
+        memory = WorkingMemory.resume(memory, "Operator: start the stall phases");
+        assertTrue(lastMessage(memory).get("content").toString().startsWith("Operator:"));
+        assertTrue(memory.state().progress().hints().contains("Operator: start the stall phases"));
+
+        // REPEATED_FAILURE: identical failing builds with writes between them, nudge on the 3rd, stall on the 4th.
+        String failing = "/work/input/src/Main.java:12: error: variable dataDir might not have been initialized";
+        String movedLine = "/work/input/src/Main.java:48: error: variable dataDir might not have been initialized";
+        for (int i = 0; i < 4; i++) {
+            memory = fold(memory, "write_file", write("Main.java", "absent", "attempt " + i),
+                    Map.of("status", "OK", "path", "Main.java", "sha256", SnapshotHasher.content("attempt " + i), "changed", true));
+            if (i == 3) assertNull(WorkingMemory.stall(memory), "A write after the nudge is not a repeated check");
+            memory = fold(memory, "build", "{}", Map.of("status", "FAILED", "exitCode", 1,
+                    "errors", List.of(i % 2 == 0 ? failing : movedLine, "BUILD FAILED in " + (2 + i % 2) + "s"), "logTail", "..."));
+            if (i < 2) assertNull(WorkingMemory.nudgeSignal(memory));
+            if (i == 2) {
+                assertEquals("REPEATED_FAILURE", WorkingMemory.nudgeSignal(memory), "Line numbers must not hide a repeat");
+                assertNull(WorkingMemory.stall(memory));
+                assertTrue(lastMessage(memory).get("content").toString().contains("The last 3 checks failed with the same errors"));
+            }
+            if (i == 3) assertEquals("REPEATED_FAILURE", WorkingMemory.stall(memory).signal());
+        }
+        assertTrue(WorkingMemory.stall(memory).evidence().stream().anyMatch(e -> e.contains("dataDir")));
+
+        // REPEATED_CONTENT: identical rewrites, nudge on the 3rd, stall on the 4th.
+        memory = WorkingMemory.resume(memory, null);
+        String same = SnapshotHasher.content("attempt 3");
+        for (int i = 0; i < 4; i++) {
+            memory = fold(memory, "write_file", write("Main.java", same, "attempt 3"),
+                    Map.of("status", "OK", "path", "Main.java", "sha256", same, "changed", false));
+            if (i == 2) assertEquals("REPEATED_CONTENT", WorkingMemory.nudgeSignal(memory));
+            if (i == 3) assertEquals("REPEATED_CONTENT", WorkingMemory.stall(memory).signal());
+        }
+
+        // NO_NEW_FACTS: the first read of Main.java is new; six rereads later the agent is nudged, then stalled.
+        memory = WorkingMemory.resume(memory, "Operator: read less, change more");
+        for (int i = 0; i < 8; i++) {
+            memory = fold(memory, "read_file", "{\"path\":\"Main.java\"}",
+                    Map.of("status", "OK", "content", "attempt 3", "sha256", same));
+            if (i < 6) assertNull(WorkingMemory.nudgeSignal(memory));
+            if (i == 6) assertEquals("NO_NEW_FACTS", WorkingMemory.nudgeSignal(memory));
+            if (i == 7) assertEquals("NO_NEW_FACTS", WorkingMemory.stall(memory).signal());
+        }
+
+        // A v2 blob written before M1 has no progress field and still folds.
+        var tree = (tools.jackson.databind.node.ObjectNode) JSON.readTree(WorkingMemory.write(memory));
+        ((tools.jackson.databind.node.ObjectNode) tree.get("state")).remove("progress");
+        var old = WorkingMemory.read(JSON.writeValueAsBytes(tree));
+        assertNull(old.state().progress());
+        var folded = fold(old, "list_files", "{}", Map.of("status", "OK", "files", List.of("Main.java")));
+        assertNotNull(folded.state().progress());
+        assertTrue(WorkingMemory.fits(folded));
     }
 
     @Test void taskLargerThanTheBudgetIsReportedInsteadOfCut() {
@@ -116,6 +169,18 @@ class WorkingMemoryTest {
         assertFalse(WorkingMemory.fits(next));
         assertEquals("t".repeat(20_000), next.task(), "The task is never compacted");
         assertEquals(List.of(), WorkingMemory.errorLines("Compilation failed at line 12"));
+    }
+
+    private static WorkingMemory.Conversation fold(WorkingMemory.Conversation memory, String tool, String args,
+            Map<String, Object> result) {
+        String id = "run-1:turn-" + (memory.state().turn() + 1) + ":tool-1";
+        var reply = new ModelReply("Progress: stall phase\nNext: keep going",
+                List.of(new ToolRequest("p", tool, args)), 1L, 1L, "stop");
+        var next = WorkingMemory.fold(memory, reply, List.of(outcome(id, tool, result)));
+        assertArrayEquals(WorkingMemory.write(next), WorkingMemory.write(WorkingMemory.fold(memory, reply,
+                List.of(outcome(id, tool, result)))), "Stall verdicts are deterministic");
+        assertTrue(WorkingMemory.fits(next));
+        return next;
     }
 
     private static ToolOutcome outcome(String id, String name, Map<String, ?> response) {

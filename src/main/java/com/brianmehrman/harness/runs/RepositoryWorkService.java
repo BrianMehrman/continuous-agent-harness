@@ -2,7 +2,9 @@ package com.brianmehrman.harness.runs;
 
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.Limits;
+import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.RunSpec;
+import com.brianmehrman.harness.execution.RunStatus;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.SnapshotRef;
 import java.nio.charset.StandardCharsets;
@@ -62,7 +64,7 @@ public class RepositoryWorkService {
                     source.snapshotSha256(), sourceJson, source.byteCount(), source.files().size());
             var spec = new RunSpec(runId, request.commandId(), inputSha, "repository-v1",
                     source.snapshotSha256(), "repository-review-v1", profile.id(), profile.fullDigest(),
-                    source.snapshotSha256(), Limits.codingDefaults());
+                    source.snapshotSha256(), Limits.codingDefaults(), PausePolicy.defaults());
             jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json,kind) " +
                             "values (?,?,?,?::jsonb,'REPOSITORY')",
                     runId, request.commandId(), inputSha, json.writeValueAsString(spec));
@@ -94,19 +96,21 @@ public class RepositoryWorkService {
                         rs.getTimestamp(9).toInstant().toString(),
                         rs.getTimestamp(10) == null ? null : rs.getTimestamp(10).toInstant().toString(), 0);
         List<WorkSummary> rows = new ArrayList<>(jdbc.query(select +
-                "where p.status='QUEUED' or a.run_id is not null order by w.created_at,w.run_id", mapper));
-        rows.addAll(jdbc.query(select + "where p.status<>'QUEUED' and a.run_id is null " +
+                "where p.status in ('QUEUED','PAUSED') or a.run_id is not null order by w.created_at,w.run_id", mapper));
+        rows.addAll(jdbc.query(select + "where p.status not in ('QUEUED','PAUSED') and a.run_id is null " +
                 "order by w.created_at desc,w.run_id desc limit 100", mapper));
         String activeId = jdbc.queryForList("select run_id from run_admission where slot_id=1", String.class)
                 .stream().findFirst().orElse(null);
         WorkSummary active = null;
         List<WorkSummary> queue = new ArrayList<>();
+        List<WorkSummary> paused = new ArrayList<>();
         List<WorkSummary> history = new ArrayList<>();
         for (WorkSummary row : rows) {
             if (row.workId().equals(activeId)) active = row;
             else if (row.status().equals("QUEUED")) queue.add(new WorkSummary(row.workId(), row.title(),
                     row.baseCommit(), row.profileRevision(), row.status(), row.version(),
                     row.deliveryStatus(), row.createdAt(), row.updatedAt(), row.startedAt(), queue.size() + 1));
+            else if (row.status().equals("PAUSED")) paused.add(row);
             else history.add(row);
         }
         var result = new LinkedHashMap<String, Object>();
@@ -123,6 +127,12 @@ public class RepositoryWorkService {
         }
         result.put("benchmarkActive", benchmarkActive);
         result.put("queue", queue);
+        result.put("paused", paused);
+        result.put("pausedRuns", jdbc.query("select r.run_id,p.status,p.updated_at from run_request r " +
+                        "join run_projection p on p.run_id=r.run_id where r.kind='BENCHMARK' and p.status='PAUSED' " +
+                        "order by p.updated_at",
+                (rs, n) -> Map.of("runId", rs.getString(1), "status", rs.getString(2),
+                        "updatedAt", rs.getTimestamp(3).toInstant().toString())));
         result.put("history", history);
         return result;
     }
@@ -151,13 +161,12 @@ public class RepositoryWorkService {
         result.put("version", row[6]);
         result.put("stale", (Boolean)row[7] || (Boolean)row[12] &&
                 ((java.time.Instant)row[13]).isBefore(java.time.Instant.now().minusSeconds(15)) &&
-                !List.of("READY_FOR_REVIEW", "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED",
-                        "LIMIT_EXHAUSTED", "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5]));
+                !RunStatus.isTerminal((String)row[5]) && !"PAUSED".equals(row[5]));
         result.put("lastSequence", row[8]);
         String reviewBlobId = (String)row[9];
         String finalSnapshot = (String)row[10];
-        if (reviewBlobId == null && List.of("FAILED", "CANCELLED", "EXPIRED", "LIMIT_EXHAUSTED",
-                "INFRASTRUCTURE_FAILED", "CONTEXT_OVERFLOW").contains(row[5])) {
+        if (reviewBlobId == null && RunStatus.isTerminal((String)row[5]) &&
+                !"READY_FOR_REVIEW".equals(row[5]) && !"SUCCEEDED".equals(row[5])) {
             var unfinished = reviews.packageUnsubmitted(runId, new SnapshotRef((String)row[14]));
             reviewBlobId = unfinished.diffBlobId();
             finalSnapshot = unfinished.finalSha256();
@@ -184,6 +193,7 @@ public class RepositoryWorkService {
                         "from run_command where run_id=? and kind='CANCEL' order by accepted_at",
                 (rs,n) -> Map.of("commandId",rs.getString(1),"deliveryStatus",rs.getBoolean(2) ? "DELIVERED" : "ACCEPTED",
                         "applicationOutcome",rs.getString(3) == null ? "PENDING" : rs.getString(3)), runId));
+        result.putAll(PauseHistory.read(jdbc, blobs, runId, (String)row[5]));
         return result;
     }
 
@@ -200,7 +210,11 @@ public class RepositoryWorkService {
                     String status = payload.path("status").asText();
                     String stage = payload.path("stage").asText("terminal");
                     if ("STATE_CHANGED".equals(type)) stage = "QUEUED".equals(status) ? "queued" :
-                            "RUNNING".equals(status) ? "model" : "READY_FOR_REVIEW".equals(status) ? "review" : "terminal";
+                            "RUNNING".equals(status) ? "model" : "READY_FOR_REVIEW".equals(status) ? "review" :
+                            "PAUSED".equals(status) ? "paused" : "terminal";
+                    if ("PAUSED".equals(type)) stage = "paused";
+                    else if ("RESUMED".equals(type) || "NUDGED".equals(type) || "STOPPED".equals(type))
+                        stage = payload.path("stage").asText("model");
                     String summary = payload.path("summary").asText("STATE_CHANGED".equals(type) ?
                             status.replace('_', ' ').toLowerCase() : type.replace('_', ' ').toLowerCase());
                     return new WorkEvent(rs.getLong(1), type, stage, summary,

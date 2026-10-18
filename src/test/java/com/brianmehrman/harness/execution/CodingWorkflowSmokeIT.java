@@ -133,8 +133,9 @@ class CodingWorkflowSmokeIT {
                     call.request().name(), new SnapshotRef(digest(step.path("to").asText())),
                     "{\"status\":\"OK\"}", submit, passed);
         }
-        @Override public String appendConversation(String previousBlobId, ModelReply reply,
-                List<ToolOutcome> outcomes) { return previousBlobId; }
+        @Override public ConversationStep appendConversation(String previousBlobId, ModelReply reply,
+                List<ToolOutcome> outcomes) { return new ConversationStep(previousBlobId, null, null, null); }
+        @Override public String resumeConversation(String blobId, String hint) { return blobId; }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) {
             if (telemetry != null) telemetry.transition(runId, status);

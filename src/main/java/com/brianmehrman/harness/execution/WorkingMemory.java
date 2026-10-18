@@ -33,7 +33,27 @@ public final class WorkingMemory {
     public record Conversation(int version, String runId, Budget budget, String system, String task,
             State state, List<Turn> recent, Compacted compacted) {}
     public record Budget(int contextTokens, int outputTokens, int maxInputTokens) {}
-    public record State(int turn, List<FileState> files, CheckState lastCheck, List<Rejection> rejected, Note note) {}
+    public record State(int turn, List<FileState> files, CheckState lastCheck, List<Rejection> rejected, Note note,
+            Progress progress) {}
+    public record Thresholds(int repeatedFailure, int repeatedContent, int noNewFacts) {
+        public static Thresholds defaults() { return new Thresholds(3, 3, 6); }
+    }
+    public record StallVerdict(String signal, int sinceTurn, List<String> evidence) {}
+    public record Progress(Thresholds thresholds, List<String> checks, boolean writeSinceCheck,
+            Map<String, List<String>> writeHistory, int nonProgressWrites, List<String> recentWrites,
+            int lastNewFactTurn, List<String> seen, List<String> nudged, List<String> hints,
+            String fired, StallVerdict stall) {
+        static Progress empty(Thresholds thresholds, int turn) {
+            return new Progress(thresholds, List.of(), false, Map.of(), 0, List.of(), turn,
+                    List.of(), List.of(), List.of(), null, null);
+        }
+    }
+    static final int HISTORY_PER_PATH = 16;
+    static final int SEEN_KEPT = 128;
+    static final int WRITES_KEPT = 8;
+    static final int EVIDENCE_ERRORS = 5;
+    private static final Pattern DURATION = Pattern.compile("\\b\\d+(\\.\\d+)?\\s*(ms|s|m)\\b");
+    private static final Pattern POSITION = Pattern.compile(":\\d+(:\\d+)?(?=:)");
     public record FileState(String path, String sha256, boolean written, int turn) {}
     public record CheckState(String tool, String outcome, Integer exitCode, List<String> errors, String receiptRef) {}
     public record Rejection(int turn, String tool, String code, String detail) {}
@@ -44,9 +64,38 @@ public final class WorkingMemory {
     private WorkingMemory() {}
 
     public static Conversation start(String runId, String system, String task, int contextTokens, int outputTokens) {
+        return start(runId, system, task, contextTokens, outputTokens, Thresholds.defaults());
+    }
+
+    public static Conversation start(String runId, String system, String task, int contextTokens, int outputTokens,
+            Thresholds thresholds) {
         int max = (int) ((contextTokens - outputTokens) * 0.9);
         return new Conversation(2, runId, new Budget(contextTokens, outputTokens, max), system, task,
-                new State(0, List.of(), null, List.of(), null), List.of(), new Compacted(0, List.of()));
+                new State(0, List.of(), null, List.of(), null, Progress.empty(thresholds, 0)), List.of(),
+                new Compacted(0, List.of()));
+    }
+
+    /** Restart stall counters after an operator resume; a hint also clears nudges and enters the conversation. */
+    public static Conversation resume(Conversation memory, String hint) {
+        State state = memory.state();
+        Progress old = state.progress() == null ? Progress.empty(Thresholds.defaults(), state.turn()) : state.progress();
+        var hints = new ArrayList<>(old.hints());
+        if (hint != null) hints.add(hint.startsWith("Operator:") ? hint : "Operator: " + hint);
+        Progress restarted = new Progress(old.thresholds(), List.of(), false, java.util.Collections.unmodifiableSortedMap(new TreeMap<>(old.writeHistory())), 0, List.of(),
+                state.turn(), old.seen(), hint == null ? old.nudged() : List.of(), List.copyOf(hints), null, null);
+        State next = new State(state.turn(), state.files(), state.lastCheck(), state.rejected(), state.note(), restarted);
+        var turns = new ArrayList<>(memory.recent());
+        if (hint != null) turns.add(new Turn(state.turn(), List.of(message("user", hints.getLast()))));
+        Conversation resumed = keep(memory, next, turns, RECENT_TURNS + (hint == null ? 0 : 1));
+        return fits(resumed) ? resumed : keep(memory, next, turns, 1);
+    }
+
+    public static String nudgeSignal(Conversation memory) {
+        return memory.state().progress() == null ? null : memory.state().progress().fired();
+    }
+
+    public static StallVerdict stall(Conversation memory) {
+        return memory.state().progress() == null ? null : memory.state().progress().stall();
     }
 
     public static Conversation fold(Conversation previous, ModelReply reply, List<ToolOutcome> outcomes) {
@@ -147,8 +196,130 @@ public final class WorkingMemory {
         }
         while (rejected.size() > REJECTED_KEPT) rejected.removeFirst();
         Note note = note(turn, reply.text());
+        Progress progress = progress(previous.progress() == null
+                ? Progress.empty(Thresholds.defaults(), previous.turn()) : previous.progress(), turn, reply, outcomes);
         return new State(turn, List.copyOf(files.values()), check, List.copyOf(rejected),
-                note == null ? previous.note() : note);
+                note == null ? previous.note() : note, progress);
+    }
+
+    private static Progress progress(Progress p, int turn, ModelReply reply, List<ToolOutcome> outcomes) {
+        var checks = new ArrayList<>(p.checks());
+        boolean writeSinceCheck = p.writeSinceCheck();
+        var history = new TreeMap<String, List<String>>();
+        p.writeHistory().forEach((path, hashes) -> history.put(path, new ArrayList<>(hashes)));
+        int nonProgress = p.nonProgressWrites();
+        var writes = new ArrayList<>(p.recentWrites());
+        var seen = new LinkedHashSet<>(p.seen());
+        boolean newFact = false;
+        boolean checkedThisTurn = false;
+        boolean repeatWriteThisTurn = false;
+        List<String> checkErrors = List.of();
+        for (int i = 0; i < outcomes.size() && i < reply.tools().size(); i++) {
+            ToolOutcome outcome = outcomes.get(i);
+            JsonNode result = parse(outcome.responseJson());
+            if (result == null || "ERROR".equals(result.path("status").asText(""))) continue;
+            switch (outcome.name()) {
+                case "write_file" -> {
+                    String path = text(result, "path");
+                    String sha = result.path("sha256").asText("");
+                    if (path == null) continue;
+                    writeSinceCheck = true;
+                    var hashes = history.computeIfAbsent(path, k -> new ArrayList<>());
+                    boolean repeat = result.path("changed").isBoolean() && !result.path("changed").asBoolean()
+                            || hashes.contains(sha);
+                    nonProgress = repeat ? nonProgress + 1 : 0;
+                    repeatWriteThisTurn |= repeat;
+                    if (!repeat) { newFact = true; hashes.add(sha); }
+                    while (hashes.size() > HISTORY_PER_PATH) hashes.removeFirst();
+                    writes.add("turn " + turn + " write " + path + " sha256=" + cap(sha, 12) +
+                            (repeat ? " unchanged" : " changed"));
+                    while (writes.size() > WRITES_KEPT) writes.removeFirst();
+                }
+                case "build", "run_tests" -> {
+                    String fingerprint = fingerprint(outcome.name(), result);
+                    String last = checks.isEmpty() ? null : checks.getLast().substring(checks.getLast().indexOf('|') + 1);
+                    if (!fingerprint.equals(last)) newFact = true;
+                    checks.add((writeSinceCheck ? "w" : "-") + turn + "|" + fingerprint);
+                    while (checks.size() > p.thresholds().repeatedFailure()) checks.removeFirst();
+                    writeSinceCheck = false;
+                    checkedThisTurn = true;
+                    checkErrors = strings(result.path("errors"));
+                }
+                case "read_file", "list_files" -> {
+                    JsonNode args = parse(reply.tools().get(i).argumentsJson());
+                    String key = outcome.name() + ":" + (args == null ? "" : args.path("path").asText(""));
+                    if (seen.add(key)) newFact = true;
+                }
+                default -> newFact = true;
+            }
+        }
+        var seenList = new ArrayList<>(seen);
+        while (seenList.size() > SEEN_KEPT) seenList.removeFirst();
+        int lastNewFact = newFact ? turn : p.lastNewFactTurn();
+        String signal = null;
+        var evidence = new ArrayList<String>();
+        if (reply.tools().isEmpty()) {
+            signal = "NO_TOOL_CALL";
+            evidence.add("turn " + turn + " reply had no tool call");
+        } else if (checkedThisTurn && checks.size() == p.thresholds().repeatedFailure() && failingRepeat(checks)) {
+            signal = "REPEATED_FAILURE";
+            for (String c : checks) evidence.add("check at turn " + c.substring(1, c.indexOf('|')));
+            checkErrors.stream().limit(EVIDENCE_ERRORS).forEach(evidence::add);
+        } else if (repeatWriteThisTurn && nonProgress >= p.thresholds().repeatedContent()) {
+            signal = "REPEATED_CONTENT";
+            evidence.addAll(writes);
+        } else if (turn - lastNewFact >= p.thresholds().noNewFacts()) {
+            signal = "NO_NEW_FACTS";
+            evidence.add("no changed write, new check result, or new read since turn " + lastNewFact);
+        }
+        var nudged = new ArrayList<>(p.nudged());
+        String fired = null;
+        StallVerdict stall = null;
+        if (signal != null) {
+            if (nudged.contains(signal)) stall = new StallVerdict(signal, turn, List.copyOf(evidence));
+            else { nudged.add(signal); fired = signal; }
+        }
+        return new Progress(p.thresholds(), List.copyOf(checks), writeSinceCheck, java.util.Collections.unmodifiableSortedMap(history), nonProgress,
+                List.copyOf(writes), lastNewFact, List.copyOf(seenList), List.copyOf(nudged), p.hints(), fired, stall);
+    }
+
+    private static boolean failingRepeat(List<String> checks) {
+        String first = checks.getFirst().substring(checks.getFirst().indexOf('|') + 1);
+        if (!first.contains("|FAILED|")) return false;
+        for (int i = 0; i < checks.size(); i++) {
+            String c = checks.get(i);
+            if (!c.substring(c.indexOf('|') + 1).equals(first)) return false;
+            if (i > 0 && c.charAt(0) != 'w') return false;
+        }
+        return true;
+    }
+
+    private static String fingerprint(String tool, JsonNode result) {
+        var errors = new ArrayList<String>();
+        // Build durations vary between identical failures, so the summary line and any timing are not part of the identity.
+        result.path("errors").forEach(e -> {
+            String line = e.asText("");
+            if (!line.startsWith("BUILD FAILED in "))
+                errors.add(DURATION.matcher(POSITION.matcher(line.replace("/work/input/", "")).replaceAll(""))
+                        .replaceAll(""));
+        });
+        java.util.Collections.sort(errors);
+        return tool + "|" + result.path("status").asText("") + "|" + String.join("\n", errors);
+    }
+
+    private static String nudge(String signal, Progress progress, List<String> errors) {
+        return switch (signal) {
+            case "REPEATED_FAILURE" -> "The last " + progress.thresholds().repeatedFailure() +
+                    " checks failed with the same errors:\n" + String.join("\n", errors) +
+                    "\nThe writes between them did not change these errors. Change the specific lines named, or take a different approach.";
+            case "REPEATED_CONTENT" -> "Your last " + progress.thresholds().repeatedContent() +
+                    " writes did not change any file (changed=false, or a previous version restored). " +
+                    "Rewriting the same content will not fix the reported errors. Edit the specific lines that cause them, or take a different approach.";
+            case "NO_NEW_FACTS" -> "Your last " + progress.thresholds().noNewFacts() +
+                    " turns produced no new information: no changed file, no new check result, no new file read. " +
+                    "Take a different step, such as running build or editing the code that fails.";
+            default -> null; // NO_TOOL_CALL uses the existing protocol reminder
+        };
     }
 
     private static List<Map<String, Object>> messages(ModelReply reply, List<ToolOutcome> outcomes, State state) {
@@ -180,6 +351,12 @@ public final class WorkingMemory {
             messages.add(tool);
         }
         if (outcomes.isEmpty()) messages.add(message("user", reminder(state, reply)));
+        Progress progress = state.progress();
+        if (progress != null && progress.fired() != null) {
+            String text = nudge(progress.fired(), progress,
+                    state.lastCheck() == null ? List.of() : state.lastCheck().errors().stream().limit(EVIDENCE_ERRORS).toList());
+            if (text != null) messages.add(message("user", text));
+        }
         return messages;
     }
 
@@ -222,6 +399,10 @@ public final class WorkingMemory {
                 if (rejection.detail() != null) text.append(": ").append(rejection.detail());
             }
         }
+        if (state.progress() != null && !state.progress().hints().isEmpty()) {
+            text.append("\nOperator hints:");
+            state.progress().hints().forEach(hint -> text.append("\n- ").append(hint));
+        }
         if (state.note() != null) {
             text.append("\nYour note from turn ").append(state.note().turn()).append(':');
             if (state.note().progress() != null) text.append("\nProgress: ").append(state.note().progress());
@@ -235,7 +416,8 @@ public final class WorkingMemory {
         int folded = base.compacted().turns();
         var kept = new ArrayList<>(turns);
         while (kept.size() > keep) {
-            attempts.add(base.runId() + ":turn-" + kept.removeFirst().turn());
+            String ref = base.runId() + ":turn-" + kept.removeFirst().turn();
+            if (!attempts.contains(ref)) attempts.add(ref);
             folded++;
         }
         return new Conversation(2, base.runId(), base.budget(), base.system(), base.task(), state,
