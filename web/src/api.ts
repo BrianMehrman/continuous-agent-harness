@@ -8,12 +8,14 @@ export type ResumeBody = { commandId: string; expectedVersion: number; extraTurn
 export type WorkEvent = { sequence: number; type: string; stage: string; summary: string; artifactDigest: string | null };
 export type Profile = { id: string; modelTag: string; fullDigest: string; toolRoundTripVerified: boolean };
 
+export class ApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } });
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try { const body = await response.json(); message = body.message ?? body.detail ?? message; } catch { /* no JSON body */ }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
   return response.json() as Promise<T>;
 }

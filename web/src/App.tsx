@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type Pause, type Profile, type Resume, type RunDetail, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
+import { api, ApiError, type Pause, type Profile, type Resume, type RunDetail, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
 
 const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Paused', 'Terminal'];
 const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW', 'STALLED']);
@@ -124,9 +124,20 @@ export default function App() {
       }
       const runId = selectedRunRef.current;
       if (runId) {
-        const item = await api.run(runId);
-        if (selectedRunRef.current !== runId) return;
-        setRunDetail(item);
+        try {
+          const item = await api.run(runId);
+          if (selectedRunRef.current !== runId) return;
+          setRunDetail(item);
+        } catch (failure) {
+          if (!(failure instanceof ApiError && failure.status === 404)) throw failure;
+          if (selectedRunRef.current !== runId) return;
+          selectedRunRef.current = null;
+          setSelectedRun(null);
+          setRunDetail(null);
+          history.replaceState({}, '', '/');
+          setError(`Run ${short(runId)} was not found.`);
+          return;
+        }
       }
       setError(current => current.startsWith('Connection') ? '' : current);
     } catch (failure) { setError(`Connection or authority unavailable: ${String(failure)}`); }
@@ -191,7 +202,7 @@ export default function App() {
     } catch (failure) { setError(`${kind === 'resume' ? 'Resume' : 'Stop'} failed: ${String(failure)}`); return false; }
     finally { setBusy(false); }
   }
-  const pausePanel = (pause: Pause) => <PausePanel pause={pause} busy={busy} onResume={extras => control('resume', extras)} onStop={() => void control('stop')} onEdit={resetPending} />;
+  const pausePanel = (pause: Pause, key: string) => <PausePanel key={key} pause={pause} busy={busy} onResume={extras => control('resume', extras)} onStop={() => void control('stop')} onEdit={resetPending} />;
 
   const currentStage = detail?.status === 'QUEUED' ? 0 : detail?.status === 'PAUSED' ? stages.indexOf('Paused') : detail?.status === 'READY_FOR_REVIEW' ? 5 :
     Math.max(0, stages.findIndex(stage => stage.toLowerCase() === events.at(-1)?.stage));
@@ -223,13 +234,13 @@ export default function App() {
         <aside className="panel detail"><div className="panel-heading"><h2>Task detail</h2><span>{runDetail && selectedRun ? short(runDetail.projection.runId) : detail ? short(detail.workId) : 'SELECT A TASK'}</span></div>
           {runDetail && selectedRun === runDetail.projection.runId ? <>
             <h3>Benchmark run {short(runDetail.projection.runId)}</h3><div className="status-line"><span className="status-pill">{runDetail.projection.status.replaceAll('_',' ')}</span>{runDetail.projection.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
-            {runDetail.projection.status === 'PAUSED' && runDetail.pause && pausePanel(runDetail.pause)}
+            {runDetail.projection.status === 'PAUSED' && runDetail.pause && pausePanel(runDetail.pause, runDetail.projection.runId)}
             <ResumeHistory resumes={runDetail.resumes} label={runDetail.label} />
             <h4>Commands</h4>{runDetail.commands.length > 0 ? <ol className="events">{runDetail.commands.map(c => <li key={c.commandId}>{c.kind.replaceAll('_', ' ').toLowerCase()} · {c.deliveryStatus.toLowerCase()}{c.applicationOutcome ? ` · ${c.applicationOutcome.replaceAll('_', ' ').toLowerCase()}` : ''}</li>)}</ol> : <p className="empty">No commands recorded.</p>}
             <a className="download" href={`/api/runs/${encodeURIComponent(runDetail.projection.runId)}`}>raw JSON ↗</a>
           </> : !selectedRun && detail && selected === detail.workId ? <>
             <h3>{detail.title}</h3><div className="status-line"><span className="status-pill">{detail.status.replaceAll('_',' ')}</span>{detail.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
-            {detail.status === 'PAUSED' && detail.pause && pausePanel(detail.pause)}
+            {detail.status === 'PAUSED' && detail.pause && pausePanel(detail.pause, detail.workId)}
             <dl><dt>Base commit</dt><dd>{detail.baseCommit}</dd><dt>Model profile</dt><dd>{detail.profileRevision}</dd><dt>Seed snapshot</dt><dd title={detail.seedSnapshotSha256}>{short(detail.seedSnapshotSha256)}</dd></dl>
             <h4>Loop</h4><div className="loop" role="list" aria-label="Coding loop">{stages.map((stage, index) => <div role="listitem" key={stage} className={`stage ${index === currentStage ? 'current' : ''}`}><span>{String(index + 1).padStart(2,'0')}</span>{stage}</div>)}</div>
             <h4>Activity</h4>{events.length ? <ol className="events">{events.map(e => <li key={e.sequence}><span>{e.sequence}</span>{e.summary}</li>)}</ol> : <p className="empty">Waiting for the first durable event.</p>}
