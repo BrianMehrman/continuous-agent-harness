@@ -1,5 +1,7 @@
 # Task tracker requirements
 
+Build a command-line to-do list. A user can add a task, list saved tasks and their `OPEN` or `DONE` status, and mark a task complete. Tasks must persist when the program exits and is run again.
+
 Implement `example.tasktracker.TaskTracker`, runnable as:
 
 ```text

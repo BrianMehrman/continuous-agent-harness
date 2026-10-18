@@ -6,7 +6,7 @@ Date: 2026-09-20
 
 ## Outcome and scope
 
-The first live benchmark asks a local model to implement a Java task-tracker CLI from a starter repository. The harness must let it inspect files, write source and tests, build, see failures, revise, and submit a working artifact. Independent executable checks decide success. A prose completion message or agent-authored test suite does not establish correctness.
+The benchmark target is a command-line to-do list: users add tasks, list their `OPEN` or `DONE` status, and mark tasks complete. Tasks persist between separate program runs. A local model must implement this Java program from a starter repository. The harness must let it inspect files, write source and tests, build, see failures, revise, and submit a working artifact. Independent executable checks decide success. A prose completion message or agent-authored test suite does not establish correctness.
 
 This specification supersedes the incident-report demonstration and its pure-tool restriction for the first coding milestone. Keep the incident report only as an optional small infrastructure fixture. The accepted backend remains Java/Spring Boot. The plan uses the proposed Spring AI/Temporal foundation; these supporting choices remain subject to design review, not a claim that they were separately accepted.
 
