@@ -1,6 +1,6 @@
 # Sprint 01 — Durable local coding benchmark
 
-Status: In progress (see [current handoff](../STATUS.md))
+Status: Closed 2026-10-17. Tasks 1–9 and the browser console merged (PRs #4–#20). The owner's 2026-10-17 [roadmap revision](../plans/roadmap.md) moved the Task 10 live benchmark pass to milestone M7. Single-model prompt iteration ended after five failed live runs ([evidence](../evidence/local-task-tracker.md)).
 
 Phase: 1
 
