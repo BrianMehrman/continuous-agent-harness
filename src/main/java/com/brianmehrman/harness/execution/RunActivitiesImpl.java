@@ -38,6 +38,8 @@ public class RunActivitiesImpl implements RunActivities {
             - Make at most one write_file per reply and keep each file under 150 lines. A reply longer than the output limit is lost whole, so split a large class or test suite into several files.
             - Read a file before overwriting it, and pass the sha256 from your latest read_file or write_file result as expectedSha256 ("absent" for a new file).
             - After writing, run build and fix the reported errors, then run run_tests; submit only after both pass.
+            - In tests, check error handling through the command-line entry point or the exception a method throws; never call a method with arguments its signature does not accept, because that cannot compile.
+            - Trust the "changed" field of a write_file result; do not reread a file to check whether a write took effect.
             - Start each reply's text with two short lines, before any tool call: "Progress: <what is done>" and "Next: <your next step>".
             - Older turns are compacted into a "Working state" message. Treat it as authoritative and reread files when you need their contents.""";
     private final BlobStore blobs;

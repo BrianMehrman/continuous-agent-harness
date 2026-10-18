@@ -314,3 +314,70 @@ This is the fourth consecutive failed live run. Iteration stopped for an owner d
 
 The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run4` schema were preserved.
 
+## Working-memory Run 5: write `changed` flag and test-design rule
+
+Date: 2026-10-17 UTC. A real local Ollama run against the fresh `task-tracker-v1` starter, **not benchmark acceptance**.
+
+**Hypothesis:** the owner chose both Run 4 follow-ups. `write_file` results now carry `changed: true|false`, computed by the host from the old and new content hash. The protocol adds two rules: check errors in tests through the CLI entry point or thrown exceptions, never calling a method with arguments its signature does not accept; and trust `changed` instead of rereading. Then rereads after writes stop, the test-compile loop does not recur, and the model reaches a passing `run_tests` and a submit.
+
+### Setup
+
+- Application commit `e1a1575`; packaged JAR SHA-256 `9d03e974b0343044a983d806d8e782756026183ee3c0d868edd68d5e9eceeaec`. `./gradlew build` passed on that commit on 2026-10-17 (60 unit, 18 integration tests; the opt-in `LocalOllamaProbeIT` skipped).
+- Compose project `harness-tryout`, PostgreSQL schema `working_memory_run5`, Temporal namespace `wm-run5`, same model, digest and frozen profile as Runs 1–4. The read-only tool probe passed.
+- Run `run-2f4d38dd5227c748e11c80676a5abab71e0a5ef510d6e2dc9c73a687f5a206b7`, started 22:32:47, ended `EXPIRED` at 23:02:48 (30-minute run deadline) during turn 39. All eight runner invocations were recorded and cleaned.
+
+### Per-turn model usage
+
+| Turn | Input | Output | Finish | Compacted | Tools |
+|---:|---:|---:|---|---:|---|
+| 1 | 1,578 | 24 | stop | 0 | list_files |
+| 2 | 1,720 | 98 | stop | 0 | read_file, read_file |
+| 3 | 2,950 | 2,440 | stop | 0 | write_file |
+| 4 | 5,449 | 54 | stop | 1 | build |
+| 5 | 5,591 | 2,428 | stop | 2 | write_file |
+| 6 | 5,584 | 50 | stop | 3 | build |
+| 7 | 5,098 | 2,401 | stop | 4 | write_file |
+| 8 | 5,091 | 45 | stop | 5 | build |
+| 9 | 5,074 | 2,350 | stop | 6 | write_file |
+| 10 | 5,031 | 45 | stop | 7 | build |
+| 11 | 5,374 | 2,333 | stop | 8 | write_file |
+| 12 | 5,378 | 86 | stop | 9 | read_file |
+| 13 | 6,856 | 2,359 | stop | 10 | write_file |
+| 14 | 6,907 | 82 | stop | 11 | read_file |
+| 15 | 6,874 | 2,379 | stop | 12 | write_file |
+| 16 | 6,943 | 82 | stop | 13 | read_file |
+| 17 | 6,894 | 2,403 | stop | 14 | write_file |
+| 18 | 6,991 | 82 | stop | 15 | read_file |
+| 19 | 6,918 | 2,440 | stop | 16 | write_file |
+| 20 | 7,068 | 56 | stop | 17 | build |
+| 21 | 5,357 | 2,509 | stop | 18 | write_file |
+| 22 | 5,574 | 56 | stop | 19 | build |
+| 23 | 5,435 | 229 | stop | 20 | read_file |
+| 24 | 5,533 | 2,711 | stop | 21 | write_file |
+| 25 | 7,526 | 2,679 | stop | 22 | write_file |
+| 26 | 7,674 | 2,541 | stop | 23 | write_file |
+| 27 | 7,479 | 2,542 | stop | 24 | write_file |
+| 28 | 7,343 | 98 | stop | 25 | read_file |
+| 29 | 7,148 | 2,544 | stop | 26 | write_file |
+| 30 | 7,186 | 60 | stop | 27 | build |
+| 31 | 5,470 | 2,490 | stop | 28 | write_file |
+| 32 | 5,469 | 109 | stop | 29 | build |
+| 33 | 5,518 | 2,492 | stop | 30 | write_file |
+| 34 | 5,521 | 179 | stop | 31 | read_file |
+| 35 | 7,264 | 2,454 | stop | 32 | write_file |
+| 36 | 7,183 | 2,449 | stop | 33 | write_file |
+| 37 | 7,171 | 130 | stop | 34 | read_file |
+| 38 | 7,123 | 2,473 | stop | 35 | write_file |
+
+### Diagnosis
+
+The `changed` flag was accurate and the model read it correctly, but the run never got past compiling its production code. From turn 9 every `build` failed with `variable dataDir might not have been initialized` in `TaskTracker.java`. The model rewrote the whole file 20 times, which produced only 11 distinct snapshots: many rewrites were byte-identical. It reported each one correctly ("The write didn't change the file (changed=false)") and then reread and rewrote the same content again. At temperature 0, near-identical input regenerates the same 2,400-token file, so whole-file rewrites cannot escape this error. This is the first run to end on the time limit rather than the turn limit: about 20 rewrites of 2,400–2,700 tokens each consumed the 30 minutes.
+
+Notes appeared every turn, and no reply ended `length`. Input stayed between 1,578 and 7,674 tokens. Neither the test-design rule nor the reread rule was exercised in a useful way, because no test was written.
+
+### Conclusion and direction change
+
+Five live runs on `qwen3.5:9b` have failed. Each change fixed the failure it targeted, and each run then failed for a new reason, now including a single fixed-point loop that a turn or time budget alone cannot recognize. On 2026-10-17 the owner redirected the work: a long-running, plan-driven harness with stall detection, pause-at-limit, role agents (architect, project manager, plan reviewer, developer, QA) on local and remote models, and a UI with human-in-the-loop and agent-loop modes. The benchmark pass follows that work. Further single-model prompt iterations are paused.
+
+The Java roles and `harness-tryout` services were stopped after the run; the named database volume and the `working_memory_run5` schema were preserved.
+

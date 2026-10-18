@@ -108,7 +108,8 @@ public final class ToolRouter {
             return error(call, "INVALID_ARGUMENTS", "expectedSha256 does not match " + path + "; current sha256 is " + actual);
         var result = workspaces.write(new WriteRequest(call.runId(), call.invocationId(), call.snapshot(),
                 path, args.path("expectedSha256").asText(), content));
-        return ok(call, result, Map.of("status", "OK", "path", path, "sha256", SnapshotHasher.content(content),
+        String written = SnapshotHasher.content(content);
+        return ok(call, result, Map.of("status", "OK", "path", path, "sha256", written, "changed", !written.equals(actual),
                 "next", "Use this sha256 as expectedSha256 for the next write_file of " + path + "; no read_file is needed"),
                 false, false);
     }
