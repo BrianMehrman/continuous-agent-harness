@@ -96,8 +96,8 @@ public class RepositoryWorkService {
                         rs.getTimestamp(9).toInstant().toString(),
                         rs.getTimestamp(10) == null ? null : rs.getTimestamp(10).toInstant().toString(), 0);
         List<WorkSummary> rows = new ArrayList<>(jdbc.query(select +
-                "where p.status='QUEUED' or a.run_id is not null order by w.created_at,w.run_id", mapper));
-        rows.addAll(jdbc.query(select + "where p.status<>'QUEUED' and a.run_id is null " +
+                "where p.status in ('QUEUED','PAUSED') or a.run_id is not null order by w.created_at,w.run_id", mapper));
+        rows.addAll(jdbc.query(select + "where p.status not in ('QUEUED','PAUSED') and a.run_id is null " +
                 "order by w.created_at desc,w.run_id desc limit 100", mapper));
         String activeId = jdbc.queryForList("select run_id from run_admission where slot_id=1", String.class)
                 .stream().findFirst().orElse(null);

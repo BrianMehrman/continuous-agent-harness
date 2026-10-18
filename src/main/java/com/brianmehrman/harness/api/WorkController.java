@@ -3,6 +3,7 @@ package com.brianmehrman.harness.api;
 import com.brianmehrman.harness.runs.RepositoryWorkService;
 import com.brianmehrman.harness.runs.RepositorySourceImporter;
 import com.brianmehrman.harness.runs.RunCommandService;
+import com.brianmehrman.harness.runs.RunQueryService;
 import com.brianmehrman.harness.execution.CancelCommand;
 import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.StopCommand;
@@ -27,11 +28,14 @@ public class WorkController {
     private final RepositoryWorkService work;
     private final RepositorySourceImporter importer;
     private final RunCommandService commands;
+    private final RunQueryService queries;
 
-    public WorkController(RepositoryWorkService work, RepositorySourceImporter importer, RunCommandService commands) {
+    public WorkController(RepositoryWorkService work, RepositorySourceImporter importer, RunCommandService commands,
+            RunQueryService queries) {
         this.work = work;
         this.importer = importer;
         this.commands = commands;
+        this.queries = queries;
     }
 
     @GetMapping("/api/work/base") public Object base() {
@@ -93,20 +97,21 @@ public class WorkController {
     @PostMapping(value = "/api/work/{workId}/resume", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> resume(@PathVariable String workId, @RequestBody String body) {
         ResumeCommand command = RunController.resumeCommand(body);
-        return pausedCommand(workId, command.commandId(), () -> commands.resume(workId, command));
+        return pausedCommand(workId, command.commandId(), command.expectedVersion(), () -> commands.resume(workId, command));
     }
 
     @PostMapping(value = "/api/work/{workId}/stop", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> stop(@PathVariable String workId, @RequestBody String body) {
         StopCommand command = RunController.stopCommand(body);
-        return pausedCommand(workId, command.commandId(), () -> commands.stop(workId, command));
+        return pausedCommand(workId, command.commandId(), command.expectedVersion(), () -> commands.stop(workId, command));
     }
 
-    private ResponseEntity<?> pausedCommand(String workId, String commandId,
+    private ResponseEntity<?> pausedCommand(String workId, String commandId, long expectedVersion,
             java.util.function.Supplier<CommandResult> accept) {
         try {
-            if (!"DELIVERED".equals(work.detail(workId).get("deliveryStatus")))
-                throw new RunController.Conflict("Run is not paused");
+            work.detail(workId);
+            if (!queries.commandExists(workId, commandId) && expectedVersion != queries.currentVersion(workId))
+                throw new RunController.Conflict("Expected version differs from current run version");
             var accepted = accept.get();
             return ResponseEntity.accepted().body(new RepositoryWorkService.WorkAccepted(
                     workId, commandId, accepted.deliveryStatus()));

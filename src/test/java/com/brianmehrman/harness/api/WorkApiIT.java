@@ -114,6 +114,18 @@ class WorkApiIT {
         assertEquals(1, jdbc.queryForObject("select count(*) from run_command where command_id=? and kind='CANCEL'",
                 Integer.class, deliveredCancelId));
         jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", firstId);
+
+        // A paused item is listed regardless of age and resumes only against its current version.
+        jdbc.update("update run_command set delivered_at=null where command_id=?", firstCommand); // version from projection, not Temporal
+        jdbc.update("update run_projection set status='PAUSED',version=3 where run_id=?", firstId);
+        assertEquals(firstId, json.readTree(request("GET", "/api/work", null).body()).path("paused").get(0).path("workId").asText());
+        String stale = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 2, "extraTurns", 1));
+        assertEquals(409, request("POST", "/api/work/" + firstId + "/resume", stale).statusCode());
+        String current = json.writeValueAsString(Map.of("commandId", "resume-" + UUID.randomUUID(),
+                "expectedVersion", 3, "extraTurns", 1));
+        assertEquals(202, request("POST", "/api/work/" + firstId + "/resume", current).statusCode());
+        jdbc.update("update run_projection set status='READY_FOR_REVIEW' where run_id=?", firstId);
     }
 
     @Test void locallyCancelledStartIsNeverDeliveredAndInFlightDeliveryRefusesCancel() throws Exception {
