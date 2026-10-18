@@ -628,7 +628,7 @@ git commit -m "feat: return stall verdicts from conversation folds and freeze a 
 Change `twoTextOnlyRepliesFailAfterOneProtocolReminder`:
 - rename it to `secondTextOnlyReplyStallsAndEndsWhenNobodyResumes`;
 - change its assertion to `assertEquals("STALLED", workflow.run(spec).status());`;
-- give `ScriptedActivities` a stall rule: `textOnly` counts replies with no tools in `appendConversation`, and the second returns `new ConversationStep(blob, null, new WorkingMemory.StallVerdict("NO_TOOL_CALL", 2, List.of("turn 2 reply had no tool call")))`;
+- give `ScriptedActivities` a stall rule: `textOnly` counts replies with no tools in `appendConversation`, and the second returns `new ConversationStep(blob, null, new WorkingMemory.StallVerdict("NO_TOOL_CALL", 2, List.of("turn 2 reply had no tool call")), null)`;
 - after the status, add `assertTrue(fixture.events.contains("PAUSED"));` and `assertTrue(fixture.events.contains("STOPPED"));`.
 
 `lateModelResultCannotDispatchToolsAfterTheRunDeadline` keeps its assertions (`EXPIRED`, no tools). The time-skipping test service skips the 7-day wait. Add `assertTrue(fixture.events.contains("PAUSED"));`.
