@@ -13,7 +13,7 @@ Model hosting and agent runtime are separate choices. A built-in loop can call e
 
 ## Project status
 
-The first milestone has a local Ollama model implement a Java task-tracker CLI through this harness, with a host-owned evaluator deciding success. See the [current handoff](docs/STATUS.md) for what is merged, what is in progress, and the next task.
+The coding benchmark asks the harness to build a command-line to-do list: users add tasks, list their `OPEN` or `DONE` status, and mark tasks complete. Tasks must persist between separate program runs. A host-owned evaluator runs the finished Java program to decide whether it meets the [public requirements](benchmarks/task-tracker-v1/starter/REQUIREMENTS.md). See the [current handoff](docs/STATUS.md) for what is merged, what is in progress, and the next task.
 
 ## Quick start
 
