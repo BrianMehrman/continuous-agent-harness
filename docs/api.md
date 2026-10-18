@@ -47,7 +47,7 @@ The downloaded file is output data; inspect it with an editor or JSON viewer. Ru
 
 ## Pause and resume
 
-A run that stops making progress or reaches a limit pauses instead of failing. Events `NUDGED`, `PAUSED`, `RESUMED`, and `STOPPED` record the ladder. Pause reasons are `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, and `TIME_LIMIT`; a stopped run ends as `STALLED`, `LIMIT_EXHAUSTED`, `LIMIT_EXHAUSTED`, or (when the 7-day waiting limit passes) `EXPIRED`. Run and work detail views add `pause` (only while `PAUSED`), `resumes`, `nudges`, and `label`: `assisted` if any resume carried a hint, `extended` if resumes only added limits, otherwise null; an assisted pass is never an unassisted completion. The work list adds `paused` and `pausedRuns`.
+A run that stops making progress or reaches a limit pauses instead of failing. Events `NUDGED`, `PAUSED`, `RESUMED`, and `STOPPED` record the ladder. Pause reasons are `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, and `TIME_LIMIT`; a run that is stopped, or whose 7-day waiting limit passes, ends with its pause reason: `STALLED` as `STALLED`, `TURN_LIMIT` and `TOOL_LIMIT` as `LIMIT_EXHAUSTED`, and `TIME_LIMIT` as `EXPIRED`. A resume must extend the limit that was reached (`extraTurns`, `extraToolCalls` or `extraMinutes` above 0 for `TURN_LIMIT`, `TOOL_LIMIT` or `TIME_LIMIT`); the API answers `400` otherwise. A `STALLED` pause accepts any resume. Run and work detail views add `pause` (only while `PAUSED`), `resumes`, `nudges`, and `label`: `assisted` if any resume carried a hint, `extended` if resumes only added limits, otherwise null; an assisted pass is never an unassisted completion. The work list adds `paused` and `pausedRuns`.
 
 Read `projection.version` from `status`, then resume with extra allowance or stop:
 

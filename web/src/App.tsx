@@ -133,7 +133,7 @@ export default function App() {
     finally { setBusy(false); }
   }
   const resume = (event: React.FormEvent) => { event.preventDefault(); void control('resume'); };
-  const stop = () => void control('stop');
+  const stop = () => { if (window.confirm('Stop this run? It ends and cannot be resumed.')) void control('stop'); };
 
   const currentStage = detail?.status === 'QUEUED' ? 0 : detail?.status === 'PAUSED' ? stages.indexOf('Paused') : detail?.status === 'READY_FOR_REVIEW' ? 5 :
     Math.max(0, stages.findIndex(stage => stage.toLowerCase() === events.at(-1)?.stage));
@@ -167,7 +167,7 @@ export default function App() {
             <h3>{detail.title}</h3><div className="status-line"><span className="status-pill">{detail.status.replaceAll('_',' ')}</span>{detail.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
             {detail.status === 'PAUSED' && detail.pause && <section className="pause-panel" aria-label="Paused run">
               <h4>Paused · {detail.pause.reason.replaceAll('_', ' ').toLowerCase()}{detail.pause.signal ? ` (${detail.pause.signal.replaceAll('_', ' ').toLowerCase()})` : ''}</h4>
-              {detail.pause.evidence.length > 0 && <ol className="events">{detail.pause.evidence.map((line, i) => <li key={i}>{line}</li>)}</ol>}
+              {detail.pause.evidence.length > 0 && <ol className="evidence">{detail.pause.evidence.map((line, i) => <li key={i}>{line}</li>)}</ol>}
               {detail.pause.note && <p className="instructions">{detail.pause.note}</p>}
               <p className="instructions">Turns {detail.pause.turnsUsed}/{detail.pause.turnsGranted} · tool calls {detail.pause.toolCallsUsed}/{detail.pause.toolCallsGranted} · active {Math.round(detail.pause.activeMillisUsed / 60000)}/{Math.round(detail.pause.activeMillisGranted / 60000)} min{detail.pause.waitUntil ? ` · waits until ${new Date(detail.pause.waitUntil).toLocaleString()}` : ''}</p>
               <form onSubmit={resume}>
