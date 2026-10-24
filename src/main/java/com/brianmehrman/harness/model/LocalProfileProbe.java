@@ -29,7 +29,7 @@ public final class LocalProfileProbe {
         this.api = OllamaApi.builder().baseUrl(Objects.requireNonNull(endpoint)).build();
     }
 
-    public ProfileRevision probe(String tag, int contextTokens, int outputTokens, double temperature) {
+    public OllamaProfile probe(String tag, int contextTokens, int outputTokens, double temperature) {
         if (tag == null || tag.isBlank() || tag.endsWith(":cloud"))
             throw new IllegalArgumentException("An explicitly selected local model is required");
         var models = api.listModels();
@@ -51,17 +51,17 @@ public final class LocalProfileProbe {
         readOnlyToolRoundTrip(tag, contextTokens, outputTokens, temperature);
         String id = "ollama-" + sha256(endpoint + "\n" + tag + "\n" + model.digest() + "\n" +
                 contextTokens + "\n" + outputTokens + "\n" + temperature);
-        var profile = new ProfileRevision(id, "ollama", endpoint.toString(), tag, model.digest(),
+        var profile = new OllamaProfile(id, "ollama", endpoint.toString(), tag, model.digest(),
                 contextTokens, outputTokens, temperature, true, null);
         verifyDigest(profile);
         return profile;
     }
 
-    public void verifyDigest(ProfileRevision profile) {
+    public void verifyDigest(OllamaProfile profile) {
         verifyDigest(profile, System.currentTimeMillis() + 10_000);
     }
 
-    public void verifyDigest(ProfileRevision profile, long deadlineEpochMillis) {
+    public void verifyDigest(OllamaProfile profile, long deadlineEpochMillis) {
         long remaining = deadlineEpochMillis - System.currentTimeMillis();
         if (remaining <= 0) throw new IllegalStateException("MODEL_DEADLINE_EXCEEDED");
         try {

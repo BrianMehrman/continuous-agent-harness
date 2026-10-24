@@ -22,7 +22,7 @@ class LocalOllamaProbeIT {
     @Test void selectedInstalledModelCompletesReadOnlyNativeToolRoundTrip() {
         String tag = System.getenv("HARNESS_OLLAMA_MODEL");
         Assumptions.assumeTrue(tag != null && !tag.isBlank(), "Set HARNESS_OLLAMA_MODEL to an installed local tag");
-        ProfileRevision profile = selection.selectLocalProfile(profiles);
+        OllamaProfile profile = selection.selectLocalProfile(profiles);
         assertEquals(tag, profile.modelTag());
         assertTrue(profile.fullDigest().matches("(?:sha256:)?[0-9a-f]{64}"));
         assertTrue(profile.toolRoundTripVerified());

@@ -9,8 +9,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 class ProfileProbeTest {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Prices HAIKU = new Prices(100_000, 500_000, 125_000, 10_000);
     private HttpServer server;
     private final AtomicInteger chats = new AtomicInteger();
     private volatile String tag = "model-1";
@@ -57,7 +60,7 @@ class ProfileProbeTest {
     private LocalProfileProbe probe() { return new LocalProfileProbe("http://127.0.0.1:" + server.getAddress().getPort()); }
 
     @Test void freezesInstalledDigestOnlyAfterReadOnlyToolRoundTrip() {
-        ProfileRevision profile = probe().probe("model-1", 4096, 512, 0);
+        OllamaProfile profile = probe().probe("model-1", 4096, 512, 0);
         assertEquals(digest, profile.fullDigest());
         assertTrue(profile.toolRoundTripVerified());
         assertEquals(2, chats.get());
@@ -75,6 +78,32 @@ class ProfileProbeTest {
         format = "remote";
         assertThrows(IllegalStateException.class, () -> probe().probe(tag, 4096, 512, 0));
         assertEquals(0, chats.get());
+    }
+
+    @Test void storedOllamaJsonRoundTripsByteForByte() {
+        String stored = "{\"id\":\"ollama-x\",\"adapter\":\"ollama\",\"endpoint\":\"http://127.0.0.1:11434\"," +
+                "\"modelTag\":\"qwen3.5:9b\",\"fullDigest\":\"" + "a".repeat(64) + "\",\"contextTokens\":16384," +
+                "\"outputTokens\":4096,\"temperature\":0.0,\"toolRoundTripVerified\":true,\"credentialReference\":null}";
+        ProfileRevision read = JSON.readValue(stored, ProfileRevision.class);
+        assertInstanceOf(OllamaProfile.class, read);
+        assertEquals(stored, JSON.writeValueAsString(read));
+    }
+
+    @Test void anthropicProfileValidatesEndpointCredentialPricesAndTier() {
+        var ok = anthropic("https://api.anthropic.com", "anthropic_api_key", 16_384, 100_000, HAIKU);
+        assertEquals("claude-haiku-5-5", ok.modelName());
+        assertTrue(ok.remote());
+        assertThrows(IllegalArgumentException.class, () -> anthropic("http://api.anthropic.com", "anthropic_api_key", 16_384, 100_000, HAIKU));
+        assertThrows(IllegalArgumentException.class, () -> anthropic("https://api.anthropic.com", "../app/key", 16_384, 100_000, HAIKU));
+        assertThrows(IllegalArgumentException.class, () -> anthropic("https://api.anthropic.com", "anthropic_api_key", 16_384, 100_000, Prices.FREE));
+        assertThrows(IllegalArgumentException.class, () -> anthropic("https://api.anthropic.com", "anthropic_api_key", 200_000, 100_000, HAIKU));
+        assertEquals(ok, JSON.readValue(JSON.writeValueAsString(ok), ProfileRevision.class));
+    }
+
+    private static AnthropicProfile anthropic(String endpoint, String credential, int context, int priceTier,
+            Prices prices) {
+        return new AnthropicProfile("anthropic-test", "anthropic", endpoint, "claude-haiku-5-5",
+                credential, context, 4096, priceTier, prices, true);
     }
 
 }

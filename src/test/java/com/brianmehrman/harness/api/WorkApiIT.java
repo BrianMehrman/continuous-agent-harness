@@ -2,7 +2,7 @@ package com.brianmehrman.harness.api;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.brianmehrman.harness.model.ProfileRevision;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.execution.RunAdmissionStore;
@@ -67,7 +67,7 @@ class WorkApiIT {
 
     @Test void acceptsFreeTextWorkIdempotentlyAndCancelsQueuedItem() throws Exception {
         String profile = "work-test-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String firstCommand = "work-" + UUID.randomUUID();
         String secondCommand = "work-" + UUID.randomUUID();
@@ -130,7 +130,7 @@ class WorkApiIT {
 
     @Test void locallyCancelledStartIsNeverDeliveredAndInFlightDeliveryRefusesCancel() throws Exception {
         String profile = "work-cancel-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String startCommand = "work-cancel-" + UUID.randomUUID();
         String runId = create(startCommand, profile);
@@ -151,7 +151,7 @@ class WorkApiIT {
 
     @Test void admissionWaitsForOlderDeliveredWork() throws Exception {
         String profile = "work-order-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String firstCommand = "work-order-" + UUID.randomUUID();
         String secondCommand = "work-order-" + UUID.randomUUID();
@@ -188,7 +188,7 @@ class WorkApiIT {
 
     @Test void repositoryEditProducesIsolatedReviewDiffWithFailedCheckVisible() throws Exception {
         String profile = "work-review-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String runId = create("work-review-" + UUID.randomUUID(), profile);
         String seed = jdbc.queryForObject("select seed_sha256 from repository_work_item where run_id=?", String.class, runId);

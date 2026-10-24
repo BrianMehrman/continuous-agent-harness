@@ -1,10 +1,10 @@
 package com.brianmehrman.harness.config;
 
 import com.brianmehrman.harness.model.LocalProfileProbe;
-import com.brianmehrman.harness.model.ProfileRevision;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.ModelAdapterFactory;
 import com.brianmehrman.harness.model.OllamaModelAdapter;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.runs.BlobStore;
 import java.util.Objects;
 import org.springframework.core.env.Environment;
@@ -26,21 +26,24 @@ public final class ModelConfiguration {
         return tag;
     }
 
-    public ProfileRevision selectLocalProfile(ProfileRevisionStore store) {
+    public OllamaProfile selectLocalProfile(ProfileRevisionStore store) {
         return selectLocalProfile(store, selectedModelTag());
     }
 
-    public ProfileRevision selectLocalProfile(ProfileRevisionStore store, String modelTag) {
+    public OllamaProfile selectLocalProfile(ProfileRevisionStore store, String modelTag) {
         String endpoint = environment.getProperty("harness.model.ollama.endpoint", "http://127.0.0.1:11434");
         int context = environment.getProperty("harness.model.context-tokens", Integer.class, 16384);
         int output = environment.getProperty("harness.model.output-tokens", Integer.class, 4096);
         double temperature = environment.getProperty("harness.model.temperature", Double.class, 0.0);
-        return store.save(new LocalProfileProbe(endpoint).probe(modelTag, context, output, temperature));
+        return (OllamaProfile) store.save(new LocalProfileProbe(endpoint).probe(modelTag, context, output, temperature));
     }
 
     @Bean
     @Profile("worker")
     ModelAdapterFactory modelAdapterFactory(BlobStore blobs) {
-        return profile -> new OllamaModelAdapter(blobs, profile);
+        return profile -> {
+            if (profile instanceof OllamaProfile ollama) return new OllamaModelAdapter(blobs, ollama);
+            throw new IllegalArgumentException("Anthropic adapter is not configured yet");
+        };
     }
 }

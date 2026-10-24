@@ -39,15 +39,15 @@ public final class OllamaModelAdapter implements ModelAdapter {
     private static final int MAX_CONVERSATION_BYTES = 4 * 1024 * 1024;
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final BlobStore blobs;
-    private final ProfileRevision profile;
+    private final OllamaProfile profile;
     private final LocalProfileProbe probe;
     private final List<ToolCallback> tools;
 
-    public OllamaModelAdapter(BlobStore blobs, ProfileRevision profile) {
+    public OllamaModelAdapter(BlobStore blobs, OllamaProfile profile) {
         this(blobs, profile, TOOLS);
     }
 
-    OllamaModelAdapter(BlobStore blobs, ProfileRevision profile, List<ToolCallback> tools) {
+    OllamaModelAdapter(BlobStore blobs, OllamaProfile profile, List<ToolCallback> tools) {
         this.blobs = Objects.requireNonNull(blobs);
         this.profile = Objects.requireNonNull(profile);
         this.probe = new LocalProfileProbe(profile.endpoint());

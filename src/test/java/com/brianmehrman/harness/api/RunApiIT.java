@@ -3,7 +3,7 @@ package com.brianmehrman.harness.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.Limits;
-import com.brianmehrman.harness.model.ProfileRevision;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
@@ -38,7 +38,7 @@ class RunApiIT {
 
     @Test void duplicateStartOrderedEventsAndVersionedCancel() throws Exception {
         String profile = "api-test-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String commandId = "start-" + UUID.randomUUID();
         String body = json.writeValueAsString(Map.of("commandId", commandId,
@@ -103,7 +103,7 @@ class RunApiIT {
 
     @Test void runScopedArtifactAndMalformedInputs() throws Exception {
         String profile = "api-test-" + UUID.randomUUID();
-        profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+        profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                 "a".repeat(64), 8192, 1024, 0, true, null));
         String body = json.writeValueAsString(Map.of("commandId", "start-" + UUID.randomUUID(),
                 "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
