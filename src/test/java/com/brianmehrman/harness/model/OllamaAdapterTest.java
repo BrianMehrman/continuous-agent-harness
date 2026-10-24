@@ -58,8 +58,8 @@ class OllamaAdapterTest {
 
     @AfterEach void stop() { server.stop(0); }
 
-    private ProfileRevision profile() {
-        return new ProfileRevision("profile-1", "ollama", "http://127.0.0.1:" + server.getAddress().getPort(),
+    private OllamaProfile profile() {
+        return new OllamaProfile("profile-1", "ollama", "http://127.0.0.1:" + server.getAddress().getPort(),
                 "model-1", "sha256:" + "a".repeat(64), 4096, 512, 0.0, true, null);
     }
     private ModelCall requestWithConversation(String json) {

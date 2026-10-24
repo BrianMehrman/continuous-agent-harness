@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.benchmark.Evaluator;
 import com.brianmehrman.harness.model.ModelReply;
-import com.brianmehrman.harness.model.ProfileRevision;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.model.ScriptedModelAdapter;
 import com.brianmehrman.harness.model.ToolRequest;
@@ -106,7 +106,7 @@ class RepositoryTaskIT {
         byte[] liveReadme = Files.readAllBytes(Path.of("README.md"));
         try {
             String profile = "repository-scripted-" + UUID.randomUUID();
-            profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+            profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                     "a".repeat(64), 8192, 1024, 0, true, null));
             var accepted = send("POST", "/api/work", json.writeValueAsString(Map.of(
                     "commandId", "repository-it-" + UUID.randomUUID(), "title", "Add a review probe",

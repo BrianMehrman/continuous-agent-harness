@@ -1,6 +1,7 @@
 package com.brianmehrman.harness.runs;
 
 import com.brianmehrman.harness.model.ProfileRevisionStore;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.RunSpec;
@@ -63,7 +64,9 @@ public class RepositoryWorkService {
                             "values (?,?::jsonb,?,?) on conflict do nothing",
                     source.snapshotSha256(), sourceJson, source.byteCount(), source.files().size());
             var spec = new RunSpec(runId, request.commandId(), inputSha, "repository-v1",
-                    source.snapshotSha256(), "repository-review-v1", profile.id(), profile.fullDigest(),
+                    source.snapshotSha256(), "repository-review-v1", profile.id(),
+                    profile instanceof OllamaProfile ollama
+                            ? ollama.fullDigest() : profile.modelName(),
                     source.snapshotSha256(), Limits.codingDefaults(), PausePolicy.defaults());
             jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json,kind) " +
                             "values (?,?,?,?::jsonb,'REPOSITORY')",

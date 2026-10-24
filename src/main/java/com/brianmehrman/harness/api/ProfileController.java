@@ -3,6 +3,8 @@ package com.brianmehrman.harness.api;
 import com.brianmehrman.harness.config.ModelConfiguration;
 import com.brianmehrman.harness.model.ProfileRevision;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
+import com.brianmehrman.harness.model.AnthropicProfile;
+import com.brianmehrman.harness.model.OllamaProfile;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,12 +49,17 @@ public class ProfileController {
     }
 
     public record ProfileView(String id, String adapter, String endpoint, String modelTag,
-            String fullDigest, int contextTokens, int outputTokens, double temperature,
-            boolean toolRoundTripVerified) {
+            String fullDigest, int contextTokens, int outputTokens, Double temperature,
+            boolean toolRoundTripVerified, String modelName, boolean remote) {
         static ProfileView from(ProfileRevision profile) {
-            return new ProfileView(profile.id(), profile.adapter(), profile.endpoint(), profile.modelTag(),
-                    profile.fullDigest(), profile.contextTokens(), profile.outputTokens(),
-                    profile.temperature(), profile.toolRoundTripVerified());
+            if (profile instanceof OllamaProfile ollama)
+                return new ProfileView(ollama.id(), ollama.adapter(), ollama.endpoint(), ollama.modelTag(),
+                        ollama.fullDigest(), ollama.contextTokens(), ollama.outputTokens(),
+                        ollama.temperature(), ollama.toolRoundTripVerified(), ollama.modelName(), false);
+            var anthropic = (AnthropicProfile) profile;
+            return new ProfileView(anthropic.id(), anthropic.adapter(), anthropic.endpoint(), null,
+                    null, anthropic.contextTokens(), anthropic.outputTokens(), null,
+                    anthropic.toolRoundTripVerified(), anthropic.modelName(), true);
         }
     }
 }

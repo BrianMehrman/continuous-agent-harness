@@ -8,6 +8,7 @@ import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.execution.StopCommand;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
 import java.util.Objects;
@@ -58,7 +59,9 @@ public class RunCommandService {
             var seed = workspaces.seed(runId, command.benchmarkVersion());
             var spec = new RunSpec(runId, command.commandId(), inputSha256, command.benchmarkVersion(),
                     definition.starterDigest(), definition.evaluatorVersion(), profile.id(),
-                    profile.fullDigest(), seed.sha256(), command.limits(), PausePolicy.defaults());
+                    profile instanceof OllamaProfile ollama
+                            ? ollama.fullDigest() : profile.modelName(),
+                    seed.sha256(), command.limits(), PausePolicy.defaults());
             int inserted = jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json) " +
                             "values (?,?,?,?::jsonb) on conflict do nothing",
                     runId, command.commandId(), inputSha256, json.writeValueAsString(spec));

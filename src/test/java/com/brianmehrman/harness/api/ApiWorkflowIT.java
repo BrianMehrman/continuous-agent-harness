@@ -15,7 +15,7 @@ import com.brianmehrman.harness.execution.ToolInvocation;
 import com.brianmehrman.harness.execution.ToolOutcome;
 import com.brianmehrman.harness.model.ModelCall;
 import com.brianmehrman.harness.model.ModelReply;
-import com.brianmehrman.harness.model.ProfileRevision;
+import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
@@ -82,7 +82,7 @@ class ApiWorkflowIT {
         factory.start();
         try {
             String profile = "api-scripted-" + UUID.randomUUID();
-            profiles.save(new ProfileRevision(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
+            profiles.save(new OllamaProfile(profile, "ollama", "http://127.0.0.1:11434", "fixture-local",
                     "a".repeat(64), 8192, 1024, 0, true, null));
             String command = "api-workflow-start-" + UUID.randomUUID();
             String body = json.writeValueAsString(Map.of("commandId", command,
