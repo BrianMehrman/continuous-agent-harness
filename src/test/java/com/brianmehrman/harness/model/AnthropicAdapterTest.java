@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,9 @@ class AnthropicAdapterTest {
     private volatile String requestKey;
     private volatile String response = TOOL_REPLY;
     private volatile int responseCode = 200;
+    private volatile boolean probeResponses;
+    private volatile boolean probeUnexpectedPrefix;
+    private final AtomicInteger probeRequests = new AtomicInteger();
     private final Map<String, byte[]> saved = new ConcurrentHashMap<>();
     private final List<byte[]> written = new ArrayList<>();
     private final BlobStore blobs = new BlobStore() {
@@ -65,7 +69,27 @@ class AnthropicAdapterTest {
         server.createContext("/v1/messages", exchange -> {
             requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             requestKey = exchange.getRequestHeaders().getFirst("x-api-key");
-            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+            String body = response;
+            if (probeResponses) {
+                if (probeRequests.incrementAndGet() % 2 == 1) {
+                    body = """
+                            {"id":"probe-1","type":"message","role":"assistant","model":"claude-haiku-5-5",
+                             "content":[{"type":"tool_use","id":"probe-tool","name":"list_files","input":{}}],
+                             "stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}
+                            """;
+                    if (probeUnexpectedPrefix)
+                        body = body.replace("\"input\":{}", "\"input\":{\"prefix\":\"private\"}");
+                } else {
+                    var sent = JSON.readTree(requestBody).path("messages");
+                    String result = sent.get(sent.size() - 1).path("content").get(0).path("content").asText();
+                    String marker = JSON.readTree(result).path("marker").asText();
+                    body = JSON.writeValueAsString(Map.of("id", "probe-2", "type", "message",
+                            "role", "assistant", "model", "claude-haiku-5-5",
+                            "content", List.of(Map.of("type", "text", "text", marker)),
+                            "stop_reason", "end_turn", "usage", Map.of("input_tokens", 10, "output_tokens", 5)));
+                }
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(responseCode, bytes.length);
             exchange.getResponseBody().write(bytes);
@@ -201,5 +225,32 @@ class AnthropicAdapterTest {
         assertEquals("user", messages.get(2).path("role").asText());
         assertEquals("old-1", messages.get(2).path("content").get(0).path("tool_use_id").asText());
         assertEquals("old-2", messages.get(2).path("content").get(1).path("tool_use_id").asText());
+    }
+
+    @Test void probeRoundTripCreatesVerifiedProfile() {
+        probeResponses = true;
+        var probe = new AnthropicProfileProbe(new CredentialFiles(temp),
+                "http://127.0.0.1:" + server.getAddress().getPort());
+        Prices prices = new Prices(100000, 500000, 125000, 10000);
+        AnthropicProfile first = probe.probe("claude-haiku-5-5", "anthropic_api_key",
+                16384, 4096, 100000, prices);
+        AnthropicProfile second = probe.probe("claude-haiku-5-5", "anthropic_api_key",
+                16384, 4096, 100000, prices);
+        assertTrue(first.toolRoundTripVerified());
+        assertEquals(first.id(), second.id());
+        assertTrue(first.id().matches("anthropic-[0-9a-f]{64}"));
+        assertEquals(4, probeRequests.get());
+    }
+
+    @Test void probeRejectsAListFilesCallWithAnUnexpectedPrefix() {
+        probeResponses = true;
+        probeUnexpectedPrefix = true;
+        var probe = new AnthropicProfileProbe(new CredentialFiles(temp),
+                "http://127.0.0.1:" + server.getAddress().getPort());
+        var error = assertThrows(IllegalStateException.class, () -> probe.probe(
+                "claude-haiku-5-5", "anthropic_api_key", 16384, 4096, 100000,
+                new Prices(100000, 500000, 125000, 10000)));
+        assertEquals("MODEL_TOOL_PROBE_FAILED", error.getMessage());
+        assertEquals(1, probeRequests.get());
     }
 }

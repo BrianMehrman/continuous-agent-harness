@@ -53,6 +53,30 @@ class EventStreamTest(unittest.TestCase):
         self.assertEqual(1, event["sequence"])
 
 
+class AnthropicProfileCliTest(unittest.TestCase):
+    def test_dollars_to_micros(self):
+        self.assertEqual(100000, harness.dollars_to_micros("0.10"))
+        self.assertEqual(1, harness.dollars_to_micros("0.000001"))
+        for invalid in ("0.0000001", "0.1000000", "-1", "not-money"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                harness.dollars_to_micros(invalid)
+
+    def test_probe_anthropic_payload(self):
+        with patch.object(harness.ApiClient, "request", return_value={"id": "profile-1"}) as request:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(0, harness.main([
+                    "probe-anthropic", "claude-haiku-5-5", "--credential", "anthropic_api_key",
+                    "--prices", "0.10,0.50,0.125,0.01", "--context", "16384",
+                    "--output", "4096", "--price-tier", "100000",
+                ]))
+        request.assert_called_once_with("POST", "/api/profiles/anthropic", {
+            "modelId": "claude-haiku-5-5", "credentialReference": "anthropic_api_key",
+            "contextTokens": 16384, "outputTokens": 4096, "priceTierInputTokens": 100000,
+            "prices": {"inputMicrosPerMTok": 100000, "outputMicrosPerMTok": 500000,
+                       "cacheWriteMicrosPerMTok": 125000, "cacheReadMicrosPerMTok": 10000},
+        })
+
+
 
 if __name__ == "__main__":
     unittest.main()

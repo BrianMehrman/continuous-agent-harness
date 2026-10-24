@@ -1,6 +1,6 @@
 # Sprint 03 — Role profiles and a remote provider (M2)
 
-Status: Planned. The spec is approved; the plan is awaiting owner review and a choice of execution method.
+Status: In progress. Tasks 1–3 have merged; Task 4 is the current work package.
 
 Milestone: [M2](../plans/roadmap.md#milestones)
 
@@ -20,9 +20,9 @@ Mark a row done only after its PR has merged. The plan's own checkboxes track pr
 
 | # | Work | Plan task | PR | Done |
 |---|---|---|---|---|
-| 1 | Sealed Ollama and Anthropic profile types | 1 | — | [ ] |
-| 2 | Shared tool catalog and per-call tool sets | 2 | — | [ ] |
-| 3 | Anthropic adapter, file credentials, leak tests | 3 | — | [ ] |
+| 1 | Sealed Ollama and Anthropic profile types | 1 | [#32](https://github.com/BrianMehrman/continuous-agent-harness/pull/32) | [x] |
+| 2 | Shared tool catalog and per-call tool sets | 2 | [#34](https://github.com/BrianMehrman/continuous-agent-harness/pull/34) | [x] |
+| 3 | Anthropic adapter, file credentials, leak tests | 3 | [#35](https://github.com/BrianMehrman/continuous-agent-harness/pull/35) | [x] |
 | 4 | Create Anthropic profiles; key storage script | 4 | — | [ ] |
 | 5 | Committed roles, frozen run terms, remote opt-in | 5 | — | [ ] |
 | 6 | Role tool sets and secret-path deny list | 6 | — | [ ] |

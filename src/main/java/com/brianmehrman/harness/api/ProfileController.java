@@ -5,6 +5,7 @@ import com.brianmehrman.harness.model.ProfileRevision;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.model.AnthropicProfile;
 import com.brianmehrman.harness.model.OllamaProfile;
+import com.brianmehrman.harness.model.Prices;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +47,44 @@ public class ProfileController {
                 throw new RunController.BadInput(failed.getMessage());
             throw new ApiErrors.ServiceUnavailable("Local model probe unavailable");
         }
+    }
+
+    @PostMapping(value = "/api/profiles/anthropic", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ProfileView probeAnthropic(@RequestBody String body) {
+        Map<String, Object> data = RunController.object(body, Set.of("modelId", "credentialReference",
+                "contextTokens", "outputTokens", "priceTierInputTokens", "prices"));
+        if (!(data.get("prices") instanceof Map<?, ?> raw) || !raw.keySet().equals(Set.of(
+                "inputMicrosPerMTok", "outputMicrosPerMTok", "cacheWriteMicrosPerMTok", "cacheReadMicrosPerMTok")))
+            throw new RunController.BadInput("Invalid prices");
+        try {
+            Prices prices = new Prices(price(raw, "inputMicrosPerMTok"), price(raw, "outputMicrosPerMTok"),
+                    price(raw, "cacheWriteMicrosPerMTok"), price(raw, "cacheReadMicrosPerMTok"));
+            return ProfileView.from(models.selectAnthropicProfile(profiles,
+                    RunController.string(data, "modelId"), RunController.string(data, "credentialReference"),
+                    positiveInt(data, "contextTokens"), positiveInt(data, "outputTokens"),
+                    positiveInt(data, "priceTierInputTokens"), prices));
+        } catch (IllegalArgumentException invalid) {
+            throw new RunController.BadInput(invalid.getMessage());
+        } catch (IllegalStateException failed) {
+            String code = failed.getMessage();
+            if (code != null && (code.startsWith("CREDENTIAL_UNAVAILABLE:") ||
+                    code.equals("MODEL_TOOL_PROBE_FAILED") || code.equals("MODEL_TOOL_ROUND_TRIP_FAILED")))
+                throw new RunController.BadInput(code);
+            throw new ApiErrors.ServiceUnavailable("Anthropic profile probe unavailable");
+        }
+    }
+
+    private static int positiveInt(Map<String, Object> data, String field) {
+        if (!(data.get(field) instanceof Integer value) || value <= 0)
+            throw new RunController.BadInput("Invalid " + field);
+        return value;
+    }
+
+    private static long price(Map<?, ?> data, String field) {
+        Object value = data.get(field);
+        if (!(value instanceof Integer || value instanceof Long))
+            throw new RunController.BadInput("Invalid " + field);
+        return ((Number) value).longValue();
     }
 
     public record ProfileView(String id, String adapter, String endpoint, String modelTag,
