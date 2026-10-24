@@ -1,5 +1,20 @@
-ARG JAVA_IMAGE=eclipse-temurin:21-jdk@sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d
+ARG JAVA_IMAGE=eclipse-temurin:21.0.12.1_1-jdk@sha256:23cc5734ff46e776f51ce66eb9ee08444fd47caabec0a95b7eb6e94be2d3696d
 FROM ${JAVA_IMAGE}
+ARG TARGETARCH
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) archive_arch=x64; archive_sha=d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c ;; \
+      arm64) archive_arch=aarch64; archive_sha=e3522e707fc7dbe2a72c30746b1e7068301a0213ecd213d4491f35a14eb55578 ;; \
+      *) echo "Unsupported Java architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    archive="OpenJDK21U-jdk_${archive_arch}_linux_hotspot_21.0.13_9.tar.gz"; \
+    curl --fail --location --retry 3 "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/${archive}" -o /tmp/temurin-jdk.tar.gz; \
+    echo "${archive_sha}  /tmp/temurin-jdk.tar.gz" | sha256sum --check -; \
+    mkdir /opt/java/patched; \
+    tar -xzf /tmp/temurin-jdk.tar.gz -C /opt/java/patched --strip-components=1; \
+    rm -rf /opt/java/openjdk /tmp/temurin-jdk.tar.gz; \
+    mv /opt/java/patched /opt/java/openjdk; \
+    /opt/java/openjdk/bin/java -version
 ARG GRADLE_SHA256
 RUN command -v flock && command -v curl && command -v tar
 RUN curl --fail --location --retry 3 https://services.gradle.org/distributions/gradle-9.8.0-bin.zip -o /tmp/gradle.zip \
