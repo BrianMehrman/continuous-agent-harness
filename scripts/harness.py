@@ -9,6 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 DEFAULT_LIMITS = {
@@ -81,6 +82,16 @@ def quote(value):
     return urllib.parse.quote(value, safe="")
 
 
+def dollars_to_micros(text):
+    try:
+        amount = Decimal(text)
+    except InvalidOperation as error:
+        raise ValueError("Invalid dollar amount") from error
+    if not amount.is_finite() or amount < 0 or amount.as_tuple().exponent < -6:
+        raise ValueError("Dollar amount must be nonnegative with at most six decimal places")
+    return int(amount * 1_000_000)
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--url", default="http://127.0.0.1:8080")
@@ -88,6 +99,13 @@ def parser():
     commands.add_parser("profiles")
     probe = commands.add_parser("probe")
     probe.add_argument("model_tag")
+    remote_probe = commands.add_parser("probe-anthropic")
+    remote_probe.add_argument("model_id")
+    remote_probe.add_argument("--credential", required=True)
+    remote_probe.add_argument("--prices", required=True, help="input,output,cache-write,cache-read dollars per MTok")
+    remote_probe.add_argument("--context", type=int, required=True)
+    remote_probe.add_argument("--output", type=int, required=True)
+    remote_probe.add_argument("--price-tier", type=int, required=True)
     start = commands.add_parser("start")
     start.add_argument("--profile", required=True)
     start.add_argument("--benchmark", default="task-tracker-v1")
@@ -129,6 +147,18 @@ def main(argv=None):
         result = client.request("GET", "/api/profiles")
     elif args.command == "probe":
         result = client.request("POST", "/api/profiles/probe", {"modelTag": args.model_tag})
+    elif args.command == "probe-anthropic":
+        parts = args.prices.split(",")
+        if len(parts) != 4:
+            raise ValueError("--prices requires input,output,cache-write,cache-read")
+        amounts = [dollars_to_micros(part) for part in parts]
+        result = client.request("POST", "/api/profiles/anthropic", {
+            "modelId": args.model_id, "credentialReference": args.credential,
+            "contextTokens": args.context, "outputTokens": args.output,
+            "priceTierInputTokens": args.price_tier,
+            "prices": dict(zip(("inputMicrosPerMTok", "outputMicrosPerMTok",
+                                "cacheWriteMicrosPerMTok", "cacheReadMicrosPerMTok"), amounts)),
+        })
     elif args.command == "start":
         limits = json.loads(args.limits.read_text()) if args.limits else DEFAULT_LIMITS
         result = client.request("POST", "/api/runs", {

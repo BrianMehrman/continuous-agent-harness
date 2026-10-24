@@ -1,7 +1,10 @@
 /target/
 /.idea/
 *.iml
-/.env
+.env*
+*.pem
+*.key
+*.p12
 .DS_Store
 /.gradle/
 /build/

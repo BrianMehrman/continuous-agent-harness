@@ -53,7 +53,7 @@ A sprint is a group of work with no dates. Each sprint file holds its objective,
 |---|---|---|
 | [01](../sprints/01-observable-loop.md) | Durable local coding loop, workspace, runner, evaluator, operator API/CLI, browser console (original Tasks 1–9) | Closed; the Task 10 benchmark pass moved to M7 |
 | [02](../sprints/02-stall-detection-and-pause.md) | M1 stall detection and pause-at-limit | Closed ([PR #28](https://github.com/BrianMehrman/continuous-agent-harness/pull/28)) |
-| [03](../sprints/03-role-profiles-and-remote-provider.md) | M2 role profiles and a remote provider | Planned: spec approved, plan in review |
+| [03](../sprints/03-role-profiles-and-remote-provider.md) | M2 role profiles and a remote provider | In progress; Tasks 1–3 merged |
 | — | M3–M7 | Not yet scoped; each gets a sprint when its spec is written |
 
 ## After M7

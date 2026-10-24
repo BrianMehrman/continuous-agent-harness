@@ -318,6 +318,26 @@ The live probe establishes local tool capability and persisted profile settings.
 
 Task 5 verification on 2026-10-04 used an isolated PostgreSQL/Temporal Compose project and the pinned local runner image. The final `./gradlew build` passed 58 unit tests and 53 discovered integration tests in 17 minutes 31 seconds, with zero failures; the opt-in live model test was the sole skip because that build did not set `HARNESS_OLLAMA_MODEL`. Separately, `LocalOllamaProbeIT` passed with the operator-selected installed tag, persisted its full digest and settings in the isolated database, and completed one adapter call. Focused adapter and probe tests passed after the context and deadline changes.
 
+### Remote model (Anthropic)
+
+The Anthropic key is a host-only file under `.secrets/models/`, outside Spring's `.secrets/app/` configtree. Store it once from an interactive terminal; the prompt does not echo its value, and the script refuses to overwrite an existing file:
+
+```sh
+python3 scripts/store-anthropic-key.py
+```
+
+The script writes `.secrets/models/anthropic_api_key` with mode 0600 in a mode 0700 directory. Set `HARNESS_MODEL_SECRETS_DIR` if the API and worker should use another private directory; keep the file name as the credential reference. The API and worker both need access to the same file. Never pass the key as a CLI argument or place it under `.secrets/app/`.
+
+With the API process running, create a profile through the CLI. This probe sends a synthetic read-only `list_files` round trip to Anthropic and saves a profile only after the model returns the tool call and acknowledges its result. The command below uses the M2 acceptance profile's frozen prices in dollars per million tokens; check the current provider prices before creating a different profile.
+
+```sh
+python3 scripts/harness.py probe-anthropic claude-haiku-5-5 \
+  --credential anthropic_api_key --prices 0.10,0.50,0.125,0.01 \
+  --context 16384 --output 4096 --price-tier 100000
+```
+
+Record the returned profile ID locally. Task 5 adds the `harness.roles.developer.profile` binding and per-run remote opt-in; this probe alone does not start a coding run. CI uses a local stub and needs no Anthropic key.
+
 ## Durable run commands and projections (Task 6)
 
 `RunCommandService.start` accepts a validated benchmark/profile/limits tuple and persists a stable run ID, immutable workflow input, seeded workspace, START outbox row, and initial QUEUED projection in one PostgreSQL transaction. A duplicate command ID returns the original run; changed input is rejected. `cancel` persists a separate command and reports acceptance independently of workflow application.

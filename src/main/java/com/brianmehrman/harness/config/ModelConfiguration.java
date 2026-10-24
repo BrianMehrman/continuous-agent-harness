@@ -8,6 +8,8 @@ import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.model.AnthropicProfile;
 import com.brianmehrman.harness.model.AnthropicModelAdapter;
 import com.brianmehrman.harness.model.CredentialFiles;
+import com.brianmehrman.harness.model.AnthropicProfileProbe;
+import com.brianmehrman.harness.model.Prices;
 import com.brianmehrman.harness.runs.BlobStore;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -40,6 +42,15 @@ public final class ModelConfiguration {
         int output = environment.getProperty("harness.model.output-tokens", Integer.class, 4096);
         double temperature = environment.getProperty("harness.model.temperature", Double.class, 0.0);
         return (OllamaProfile) store.save(new LocalProfileProbe(endpoint).probe(modelTag, context, output, temperature));
+    }
+
+    public AnthropicProfile selectAnthropicProfile(ProfileRevisionStore store, String modelId,
+            String credentialReference, int contextTokens, int outputTokens,
+            int priceTierInputTokens, Prices prices) {
+        var credentials = new CredentialFiles(Path.of(environment.getProperty(
+                "harness.model.secrets-directory", "./.secrets/models/")));
+        return (AnthropicProfile) store.save(new AnthropicProfileProbe(credentials).probe(modelId,
+                credentialReference, contextTokens, outputTokens, priceTierInputTokens, prices));
     }
 
     @Bean
