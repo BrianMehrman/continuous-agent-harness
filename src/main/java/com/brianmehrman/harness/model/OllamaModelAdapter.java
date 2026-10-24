@@ -44,7 +44,9 @@ public final class OllamaModelAdapter implements ModelAdapter {
     private final List<ToolCallback> tools;
 
     public OllamaModelAdapter(BlobStore blobs, OllamaProfile profile) {
-        this(blobs, profile, TOOLS);
+        this(blobs, profile, ToolCatalog.select(null).stream()
+                .map(definition -> tool(definition.name(), definition.description(), definition.inputSchemaJson()))
+                .toList());
     }
 
     OllamaModelAdapter(BlobStore blobs, OllamaProfile profile, List<ToolCallback> tools) {
@@ -81,7 +83,8 @@ public final class OllamaModelAdapter implements ModelAdapter {
                         })).build();
         var options = OllamaChatOptions.builder().model(profile.modelTag())
                 .numCtx(profile.contextTokens()).numPredict(profile.outputTokens())
-                .temperature(profile.temperature()).truncate(false).disableThinking().toolCallbacks(tools).build();
+                .temperature(profile.temperature()).truncate(false).disableThinking()
+                .toolCallbacks(selectedTools(request.tools())).build();
         var model = OllamaChatModel.builder().ollamaApi(api).options(options)
                 .retryTemplate(new RetryTemplate(RetryPolicy.withMaxRetries(0))).build();
         org.springframework.ai.chat.model.ChatResponse response;
@@ -196,13 +199,13 @@ public final class OllamaModelAdapter implements ModelAdapter {
         return value;
     }
 
-    private static final List<ToolCallback> TOOLS = List.of(
-            tool("list_files", "List paths in the current immutable snapshot", "{\"type\":\"object\",\"properties\":{\"prefix\":{\"type\":\"string\"}}}"),
-            tool("read_file", "Read a file in the current immutable snapshot", "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}"),
-            tool("write_file", "Replace a file after checking its expected hash", "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"expectedSha256\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"expectedSha256\",\"content\"]}"),
-            tool("run_tests", "Run the fixed test command on the current snapshot", "{\"type\":\"object\",\"properties\":{}}"),
-            tool("build", "Build the current snapshot with the fixed command", "{\"type\":\"object\",\"properties\":{}}"),
-            tool("submit", "Submit the current snapshot for host review or evaluation", "{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"]}"));
+    private List<ToolCallback> selectedTools(List<String> names) {
+        if (names == null) return tools;
+        return ToolCatalog.select(names).stream().map(definition -> tools.stream()
+                .filter(callback -> callback.getToolDefinition().name().equals(definition.name()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("Unavailable model tool: " + definition.name())))
+                .toList();
+    }
 
     private static ToolCallback tool(String name, String description, String schema) {
         return new ToolCallback() {
