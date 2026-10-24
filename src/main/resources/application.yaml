@@ -40,6 +40,8 @@ management:
     health:
       show-details: never
 harness:
+  model:
+    secrets-directory: ${HARNESS_MODEL_SECRETS_DIR:./.secrets/models/}
   runner:
     enabled: ${HARNESS_RUNNER_ENABLED:false}
     image: ${HARNESS_RUNNER_IMAGE:}
