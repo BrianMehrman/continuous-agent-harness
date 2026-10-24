@@ -5,7 +5,11 @@ import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.ModelAdapterFactory;
 import com.brianmehrman.harness.model.OllamaModelAdapter;
 import com.brianmehrman.harness.model.OllamaProfile;
+import com.brianmehrman.harness.model.AnthropicProfile;
+import com.brianmehrman.harness.model.AnthropicModelAdapter;
+import com.brianmehrman.harness.model.CredentialFiles;
 import com.brianmehrman.harness.runs.BlobStore;
+import java.nio.file.Path;
 import java.util.Objects;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -41,9 +45,11 @@ public final class ModelConfiguration {
     @Bean
     @Profile("worker")
     ModelAdapterFactory modelAdapterFactory(BlobStore blobs) {
-        return profile -> {
-            if (profile instanceof OllamaProfile ollama) return new OllamaModelAdapter(blobs, ollama);
-            throw new IllegalArgumentException("Anthropic adapter is not configured yet");
+        var credentials = new CredentialFiles(Path.of(environment.getProperty(
+                "harness.model.secrets-directory", "./.secrets/models/")));
+        return profile -> switch (profile) {
+            case OllamaProfile ollama -> new OllamaModelAdapter(blobs, ollama);
+            case AnthropicProfile anthropic -> new AnthropicModelAdapter(blobs, anthropic, credentials);
         };
     }
 }
