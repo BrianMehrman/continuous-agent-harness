@@ -1,6 +1,5 @@
 package com.brianmehrman.harness.runs;
 
-import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.execution.PausePolicy;
@@ -8,6 +7,7 @@ import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.execution.RunStatus;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.SnapshotRef;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,19 +28,19 @@ public class RepositoryWorkService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final RepositorySourceImporter importer;
-    private final ProfileRevisionStore profiles;
+    private final RunTermsResolver resolver;
     private final BlobStore blobs;
     private final ReviewArtifactService reviews;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RepositoryWorkService(JdbcTemplate jdbc, PlatformTransactionManager manager,
-            RepositorySourceImporter importer, ProfileRevisionStore profiles, BlobStore blobs,
+            RepositorySourceImporter importer, RunTermsResolver resolver, BlobStore blobs,
             ReviewArtifactService reviews) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(manager));
         this.transactions.setTimeout(20);
         this.importer = Objects.requireNonNull(importer);
-        this.profiles = Objects.requireNonNull(profiles);
+        this.resolver = Objects.requireNonNull(resolver);
         this.blobs = Objects.requireNonNull(blobs);
         this.reviews = Objects.requireNonNull(reviews);
     }
@@ -52,7 +52,9 @@ public class RepositoryWorkService {
         String runId = "run-" + SnapshotHasher.content("run-id-v1\n" + request.commandId());
         var existing = prior(request.commandId());
         if (existing != null) return same(request.commandId(), inputSha, existing);
-        var profile = profiles.get(request.profileRevision());
+        var resolved = resolver.resolve(new RunOptions(request.role(), request.profileRevision(),
+                Boolean.TRUE.equals(request.allowRemote()), request.costLimitMicros(), request.costBufferPercent()));
+        var profile = resolved.profile();
         var source = importer.capture("main");
         return transactions.execute(tx -> {
             var winner = prior(request.commandId());
@@ -67,7 +69,7 @@ public class RepositoryWorkService {
                     source.snapshotSha256(), "repository-review-v1", profile.id(),
                     profile instanceof OllamaProfile ollama
                             ? ollama.fullDigest() : profile.modelName(),
-                    source.snapshotSha256(), Limits.codingDefaults(), PausePolicy.defaults());
+                    source.snapshotSha256(), Limits.codingDefaults(), PausePolicy.defaults(), resolved.terms());
             jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json,kind) " +
                             "values (?,?,?,?::jsonb,'REPOSITORY')",
                     runId, request.commandId(), inputSha, json.writeValueAsString(spec));
@@ -76,7 +78,7 @@ public class RepositoryWorkService {
             jdbc.update("insert into run_snapshot(run_id,sha256) values (?,?)", runId, source.snapshotSha256());
             jdbc.update("insert into repository_work_item(run_id,title,instructions_blob_id,profile_revision," +
                             "base_commit,seed_sha256) values (?,?,?,?,?,?)",
-                    runId, request.title(), instructionBlob, request.profileRevision(),
+                    runId, request.title(), instructionBlob, profile.id(),
                     source.commitSha(), source.snapshotSha256());
             jdbc.update("insert into run_command(command_id,run_id,kind,payload_sha256,payload_json) " +
                             "values (?,?,'START',?,?::jsonb)", request.commandId(), runId, inputSha, payload);
@@ -281,11 +283,19 @@ public class RepositoryWorkService {
                 request.commandId().length() > 200 || request.title() == null ||
                 request.title().isBlank() || request.title().length() > 160 ||
                 request.instructions() == null || request.instructions().isBlank() ||
-                request.instructions().length() > 16_000 || request.profileRevision() == null ||
-                request.profileRevision().isBlank()) throw new IllegalArgumentException("Invalid work request");
+                request.instructions().length() > 16_000 ||
+                request.profileRevision() != null && request.profileRevision().isBlank() ||
+                request.role() != null && request.role().isBlank())
+            throw new IllegalArgumentException("Invalid work request");
     }
 
-    public record CreateWorkRequest(String commandId, String title, String instructions, String profileRevision) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CreateWorkRequest(String commandId, String title, String instructions, String profileRevision,
+            String role, Boolean allowRemote, Long costLimitMicros, Integer costBufferPercent) {
+        public CreateWorkRequest(String commandId, String title, String instructions, String profileRevision) {
+            this(commandId, title, instructions, profileRevision, null, null, null, null);
+        }
+    }
     public record WorkAccepted(String workId, String commandId, String deliveryStatus) {}
     public record WorkSummary(String workId, String title, String baseCommit, String profileRevision,
             String status, long version, String deliveryStatus, String createdAt,

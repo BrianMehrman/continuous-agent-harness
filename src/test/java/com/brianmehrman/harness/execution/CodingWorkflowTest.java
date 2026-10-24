@@ -60,10 +60,13 @@ class CodingWorkflowTest {
                     WorkflowOptions.newBuilder().setWorkflowId(RUN).setTaskQueue("coding-text-test").build());
             var spec = new RunSpec(RUN, "start-1", "f".repeat(64), "task-tracker-v1",
                     "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
-                    Limits.codingDefaults());
+                    Limits.codingDefaults(), PausePolicy.defaults(),
+                    new RunTerms("developer", "role-digest", "role-blob", List.of("read_file"),
+                            "model", false, null));
 
             assertEquals("STALLED", workflow.run(spec).status());
             assertEquals(2, fixture.modelAttempts.size());
+            assertEquals(List.of(List.of("read_file"), List.of("read_file")), fixture.modelTools);
             assertTrue(fixture.events.contains("PAUSED"));
             assertTrue(fixture.events.contains("STOPPED"));
         }
@@ -193,6 +196,7 @@ class CodingWorkflowTest {
         private final List<String> publishedStatuses = new ArrayList<>();
         private int modelCalls;
         private final List<Integer> modelAttempts = new ArrayList<>();
+        private final List<List<String>> modelTools = new ArrayList<>();
         private CountDownLatch toolEntered;
         private CountDownLatch toolRelease;
         private String cancelledRunner;
@@ -227,6 +231,7 @@ class CodingWorkflowTest {
                 }
             }
             modelAttempts.add(call.attempt());
+            modelTools.add(call.tools());
             return replies.get(modelCalls++);
         }
         @Override public ToolOutcome invokeTool(ToolInvocation call) {

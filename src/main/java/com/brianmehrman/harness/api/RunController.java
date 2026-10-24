@@ -26,7 +26,9 @@ import tools.jackson.databind.json.JsonMapper;
 @RestController
 @Profile("api")
 public class RunController {
-    private static final Set<String> START = Set.of("commandId", "benchmarkVersion", "profileRevision", "limits");
+    private static final Set<String> START = Set.of("commandId", "benchmarkVersion", "limits");
+    private static final Set<String> START_OPTIONAL = Set.of("profileRevision", "role", "allowRemote",
+            "costLimitMicros", "costBufferPercent");
     private static final Set<String> CANCEL = Set.of("commandId", "expectedVersion");
     private static final Set<String> RESUME_REQUIRED = Set.of("commandId", "expectedVersion");
     private static final Set<String> RESUME_OPTIONAL = Set.of("extraTurns", "extraToolCalls", "extraMinutes", "hint");
@@ -44,7 +46,7 @@ public class RunController {
 
     @PostMapping(value = "/api/runs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> start(@RequestBody String body) {
-        Map<String, Object> data = object(body, START);
+        Map<String, Object> data = object(body, START, START_OPTIONAL);
         if (!(data.get("limits") instanceof Map<?, ?> raw) || !raw.keySet().equals(LIMITS))
             throw new BadInput("Full limits object is required");
         Limits limits;
@@ -53,7 +55,9 @@ public class RunController {
         try {
             var accepted = commands.start(new StartCommand(
                     string(data, "commandId"), string(data, "benchmarkVersion"),
-                    string(data, "profileRevision"), limits));
+                    optionalString(data, "profileRevision"), limits, optionalString(data, "role"),
+                    optionalBoolean(data, "allowRemote"), optionalLong(data, "costLimitMicros"),
+                    optionalInteger(data, "costBufferPercent")));
             var state = queries.command(accepted.runId(), accepted.commandId());
             return ResponseEntity.accepted().body(new CommandResponse(accepted.runId(), accepted.commandId(),
                     state.deliveryStatus(), state.applicationOutcome()));
@@ -177,6 +181,29 @@ public class RunController {
 
     static String string(Map<String, Object> data, String field) {
         if (!(data.get(field) instanceof String value) || value.isBlank()) throw new BadInput("Invalid " + field);
+        return value;
+    }
+
+    static String optionalString(Map<String, Object> data, String field) {
+        return data.containsKey(field) ? string(data, field) : null;
+    }
+
+    static Boolean optionalBoolean(Map<String, Object> data, String field) {
+        if (!data.containsKey(field)) return null;
+        if (!(data.get(field) instanceof Boolean value)) throw new BadInput("Invalid " + field);
+        return value;
+    }
+
+    static Long optionalLong(Map<String, Object> data, String field) {
+        if (!data.containsKey(field)) return null;
+        if (!(data.get(field) instanceof Integer || data.get(field) instanceof Long))
+            throw new BadInput("Invalid " + field);
+        return ((Number) data.get(field)).longValue();
+    }
+
+    static Integer optionalInteger(Map<String, Object> data, String field) {
+        if (!data.containsKey(field)) return null;
+        if (!(data.get(field) instanceof Integer value)) throw new BadInput("Invalid " + field);
         return value;
     }
 

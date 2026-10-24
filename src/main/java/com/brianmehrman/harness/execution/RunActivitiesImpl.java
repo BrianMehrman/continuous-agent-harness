@@ -87,19 +87,25 @@ public class RunActivitiesImpl implements RunActivities {
             String instructions = new String(blobs.get((String) item.get("instructions_blob_id")), StandardCharsets.UTF_8);
             system = "Edit the frozen repository snapshot using the six provided tools. " +
                     "Read relevant files, make a focused change, run checks, then submit a concise summary. " +
-                    "A failed check must be reported honestly. Submit means ready for human review; changes are not applied to the live repository." +
-                    PROTOCOL;
+                    "A failed check must be reported honestly. Submit means ready for human review; changes are not applied to the live repository.";
             task = "Task: " + item.get("title") + "\nBase commit: " + item.get("base_commit") + "\nInstructions:\n" + instructions;
         } else {
             task = workspaces.files(spec.runId(), new SnapshotRef(spec.seedSnapshotSha256())).get("REQUIREMENTS.md");
             if (task == null) throw new IllegalStateException("Benchmark requirements are missing");
             system = "Implement the Java task-tracker CLI described in REQUIREMENTS.md using the six provided tools. " +
                     "Use list_files and read_file to inspect the starter before changing it. " +
-                    "A passing submit is required; the host evaluates the submitted snapshot." + PROTOCOL;
+                    "A passing submit is required; the host evaluates the submitted snapshot.";
         }
+        system = systemPrompt(spec, system, blobs, json);
         var memory = WorkingMemory.start(spec.runId(), system, task, profile.contextTokens(), profile.outputTokens(),
                 spec.policy().thresholds());
         return storeConversation(WorkingMemory.write(memory));
+    }
+
+    static String systemPrompt(RunSpec spec, String framing, BlobStore blobs, JsonMapper json) {
+        if (spec.terms() == null) return framing + PROTOCOL;
+        AgentRole role = json.readValue(blobs.get(spec.terms().roleBlobId()), AgentRole.class);
+        return role.prompt() + "\n\n" + framing + PROTOCOL;
     }
 
     @Override public ModelReply callModel(ModelCall call) {

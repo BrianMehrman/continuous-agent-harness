@@ -23,7 +23,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 @RestController
 @Profile("api")
 public class WorkController {
-    private static final Set<String> CREATE = Set.of("commandId", "title", "instructions", "profileRevision");
+    private static final Set<String> CREATE = Set.of("commandId", "title", "instructions");
+    private static final Set<String> CREATE_OPTIONAL = Set.of("profileRevision", "role", "allowRemote",
+            "costLimitMicros", "costBufferPercent");
     private static final Set<String> CANCEL = Set.of("commandId", "expectedVersion");
     private final RepositoryWorkService work;
     private final RepositorySourceImporter importer;
@@ -48,11 +50,14 @@ public class WorkController {
 
     @PostMapping(value = "/api/work", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> create(@RequestBody String body) {
-        Map<String, Object> data = RunController.object(body, CREATE);
+        Map<String, Object> data = RunController.object(body, CREATE, CREATE_OPTIONAL);
         try {
             return ResponseEntity.accepted().body(work.create(new RepositoryWorkService.CreateWorkRequest(
                     RunController.string(data, "commandId"), RunController.string(data, "title"),
-                    RunController.string(data, "instructions"), RunController.string(data, "profileRevision"))));
+                    RunController.string(data, "instructions"), RunController.optionalString(data, "profileRevision"),
+                    RunController.optionalString(data, "role"), RunController.optionalBoolean(data, "allowRemote"),
+                    RunController.optionalLong(data, "costLimitMicros"),
+                    RunController.optionalInteger(data, "costBufferPercent"))));
         } catch (IllegalArgumentException invalid) { throw RunController.classify(invalid); }
         catch (IllegalStateException unavailable) { throw new ApiErrors.ServiceUnavailable("Local repository unavailable"); }
     }
