@@ -74,6 +74,25 @@ class OllamaAdapterTest {
     }
     private void serverReplyJson(String response) { responses.add(response); }
 
+    @Test void requestCarriesOnlyTheCallsToolSet() {
+        String conversation = "{\"version\":1,\"messages\":[{\"role\":\"user\",\"content\":\"Inspect\"}]}";
+        ModelCall call = requestWithConversation(conversation);
+        new OllamaModelAdapter(blobs, profile()).call(new ModelCall(call.runId(), call.invocationId(),
+                call.attempt(), call.profileRevision(), call.conversationBlobId(),
+                call.deadlineEpochMillis(), List.of("list_files", "read_file")));
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var sent = json.readTree(requestBody).path("tools");
+        assertEquals(List.of("list_files", "read_file"),
+                java.util.stream.StreamSupport.stream(sent.spliterator(), false)
+                        .map(tool -> tool.path("function").path("name").asText()).toList());
+
+        new OllamaModelAdapter(blobs, profile()).call(requestWithConversation(conversation));
+        sent = json.readTree(requestBody).path("tools");
+        assertEquals(List.of("list_files", "read_file", "write_file", "run_tests", "build", "submit"),
+                java.util.stream.StreamSupport.stream(sent.spliterator(), false)
+                        .map(tool -> tool.path("function").path("name").asText()).toList());
+    }
+
     @Test void nativeToolRequestIsReturnedWithoutExecution() {
         serverReply("native-write-file-response.json");
         ToolCallback sentinel = new ToolCallback() {

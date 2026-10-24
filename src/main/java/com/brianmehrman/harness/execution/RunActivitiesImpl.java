@@ -128,7 +128,7 @@ public class RunActivitiesImpl implements RunActivities {
                 if (!WorkingMemory.fits(memory)) throw new IllegalArgumentException("MODEL_CONTEXT_OVERFLOW");
                 String rendered = blobs.put(CONVERSATION, json.writeValueAsBytes(WorkingMemory.render(memory)));
                 dispatched = new ModelCall(call.runId(), call.invocationId(), call.attempt(),
-                        call.profileRevision(), rendered, call.deadlineEpochMillis());
+                        call.profileRevision(), rendered, call.deadlineEpochMillis(), call.tools());
             }
             ModelReply reply = adapters.forProfile(profiles.get(call.profileRevision())).call(dispatched);
             String responseBlob = blobs.put("application/vnd.harness.model-reply+json", json.writeValueAsBytes(reply));
