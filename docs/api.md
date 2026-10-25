@@ -62,7 +62,8 @@ python3 scripts/harness.py stop RUN_ID --expected-version VERSION
 
 | Method and path | Purpose |
 |---|---|
-| `POST /api/runs` | Accept `{commandId, benchmarkVersion, profileRevision, limits}`; return `202` with run and command IDs. |
+| `POST /api/runs` | Accept `{commandId, benchmarkVersion, limits}` plus optional `profileRevision`, `role`, `allowRemote`, `costLimitMicros`, and `costBufferPercent`; return `202` with run and command IDs. |
+| `POST /api/work` | Accept `{commandId, title, instructions}` plus the same optional run terms; return `202` with the work and command IDs. |
 | `GET /api/runs` | List the latest 100 run projections. |
 | `GET /api/runs/{id}` | Return projection and command delivery/application outcomes. |
 | `GET /api/runs/{id}/events?after=N` | Return up to 200 ordered events with sequence greater than `N`; repeat with the last seen sequence. |
@@ -75,5 +76,7 @@ python3 scripts/harness.py stop RUN_ID --expected-version VERSION
 | `GET /api/runs/{id}/artifacts/{digest}` | Download a run-associated SHA-256 blob as an attachment. |
 
 All mutations require `Content-Type: application/json` and exact fields. `400` means malformed or unsupported input, `404` means unknown run or artifact, `409` means a conflicting command identity or currently stale cancellation version, and `503` means required local authority or model probing is unavailable. A supplied command ID is global and must not be reused for a different operation. The initial API is for a trusted local operator on loopback; it requires a loopback `Host` for every API request, rejects foreign browser Origin and Fetch-Site mutation requests, and does not enable CORS. It is not a hosted multi-user authentication boundary.
+
+The role defaults to `developer`. If `profileRevision` is omitted, configure `harness.roles.developer.profile` with a saved profile ID. A remote profile requires `allowRemote: true`; a priced profile also requires a positive `costLimitMicros`. `costBufferPercent` defaults to 10 and accepts 0–50. The accepted run stores the role content and these terms; changing the local role file or binding later does not change it.
 
 The default limits are encoded in `scripts/harness.py`. Supply `--limits limits.json` to start with all ten explicit bounds. `events --follow` resumes from its last printed sequence after a transient connection failure or temporary `5xx` response. The CLI's `--url` option accepts only a loopback HTTP origin.

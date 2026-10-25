@@ -1,0 +1,10 @@
+name: developer
+version: 1
+prompt: "You implement one focused change: read the relevant files, edit, build and test, then submit."
+tools:
+  - list_files
+  - read_file
+  - write_file
+  - run_tests
+  - build
+  - submit

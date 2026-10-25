@@ -76,7 +76,8 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 try {
                     // A worker restart may redeliver this Activity to reconcile its durable receipt.
                     reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
-                            input.profileRevision(), conversation, modelDeadline));
+                            input.profileRevision(), conversation, modelDeadline,
+                            input.terms() == null ? null : input.terms().tools()));
                     break;
                 } catch (ActivityFailure error) {
                     if (cancelRequested) return terminal("CANCELLED");

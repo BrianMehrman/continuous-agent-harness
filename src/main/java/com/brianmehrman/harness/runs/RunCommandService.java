@@ -7,7 +7,6 @@ import com.brianmehrman.harness.execution.PausePolicy;
 import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.execution.StopCommand;
-import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.model.OllamaProfile;
 import com.brianmehrman.harness.workspace.SnapshotHasher;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
@@ -24,19 +23,19 @@ public class RunCommandService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final WorkspaceStore workspaces;
-    private final ProfileRevisionStore profiles;
+    private final RunTermsResolver resolver;
     private final TaskTrackerDefinition definition;
     private final BlobStore blobs;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public RunCommandService(JdbcTemplate jdbc, PlatformTransactionManager manager,
-            WorkspaceStore workspaces, ProfileRevisionStore profiles, TaskTrackerDefinition definition,
+            WorkspaceStore workspaces, RunTermsResolver resolver, TaskTrackerDefinition definition,
             BlobStore blobs) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(manager));
         this.transactions.setTimeout(15);
         this.workspaces = Objects.requireNonNull(workspaces);
-        this.profiles = Objects.requireNonNull(profiles);
+        this.resolver = Objects.requireNonNull(resolver);
         this.definition = Objects.requireNonNull(definition);
         this.blobs = Objects.requireNonNull(blobs);
     }
@@ -46,6 +45,11 @@ public class RunCommandService {
         String payload = json.writeValueAsString(command);
         String inputSha256 = SnapshotHasher.content("run-start-v1\n" + payload);
         String runId = "run-" + SnapshotHasher.content("run-id-v1\n" + command.commandId());
+        var prior = jdbc.query("select run_id,input_sha256 from run_request where command_id=?",
+                (rs, row) -> new String[]{rs.getString(1), rs.getString(2)}, command.commandId());
+        if (!prior.isEmpty()) return existingStart(command, inputSha256, prior.getFirst());
+        var resolved = resolver.resolve(new RunOptions(command.role(), command.profileRevision(),
+                Boolean.TRUE.equals(command.allowRemote()), command.costLimitMicros(), command.costBufferPercent()));
         return transactions.execute(status -> {
             var previous = jdbc.query("select run_id,input_sha256 from run_request where command_id=?",
                     (rs, row) -> new String[]{rs.getString(1), rs.getString(2)}, command.commandId());
@@ -55,13 +59,13 @@ public class RunCommandService {
                 throw new IllegalArgumentException("Start command ID reused with different input");
             if (!definition.benchmarkVersion().equals(command.benchmarkVersion()))
                 throw new IllegalArgumentException("Unknown benchmark version");
-            var profile = profiles.get(command.profileRevision());
+            var profile = resolved.profile();
             var seed = workspaces.seed(runId, command.benchmarkVersion());
             var spec = new RunSpec(runId, command.commandId(), inputSha256, command.benchmarkVersion(),
                     definition.starterDigest(), definition.evaluatorVersion(), profile.id(),
                     profile instanceof OllamaProfile ollama
                             ? ollama.fullDigest() : profile.modelName(),
-                    seed.sha256(), command.limits(), PausePolicy.defaults());
+                    seed.sha256(), command.limits(), PausePolicy.defaults(), resolved.terms());
             int inserted = jdbc.update("insert into run_request(run_id,command_id,input_sha256,spec_json) " +
                             "values (?,?,?,?::jsonb) on conflict do nothing",
                     runId, command.commandId(), inputSha256, json.writeValueAsString(spec));
