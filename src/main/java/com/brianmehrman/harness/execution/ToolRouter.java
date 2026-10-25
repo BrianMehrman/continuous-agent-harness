@@ -53,6 +53,8 @@ public final class ToolRouter {
         String name = call.request().name();
         if (!List.of("list_files", "read_file", "write_file", "run_tests", "build", "submit").contains(name))
             return error(call, "UNKNOWN_TOOL");
+        if (call.allowedTools() != null && !call.allowedTools().contains(name))
+            return error(call, "TOOL_NOT_ALLOWED");
         if (System.currentTimeMillis() >= call.deadlineEpochMillis()) return error(call, "DEADLINE_EXCEEDED");
         try {
             JsonNode args = json.readTree(call.request().argumentsJson());
@@ -82,7 +84,7 @@ public final class ToolRouter {
         if (prefix.length() > 1024 || prefix.contains("..") || prefix.contains("\\") ||
                 prefix.codePoints().anyMatch(Character::isISOControl)) return error(call, "INVALID_ARGUMENTS");
         var paths = workspaces.files(call.runId(), call.snapshot()).keySet().stream()
-                .filter(path -> path.startsWith(prefix)).toList();
+                .filter(path -> path.startsWith(prefix) && !ModelPathPolicy.denied(path)).toList();
         return ok(call, call.snapshot(), Map.of("status", "OK", "paths", paths), false, false);
     }
 
@@ -91,6 +93,7 @@ public final class ToolRouter {
         String path = args.path("path").asText();
         if (path.startsWith("/") || path.contains("..") || path.contains("\\") ||
                 path.codePoints().anyMatch(Character::isISOControl)) return error(call, "INVALID_ARGUMENTS");
+        if (ModelPathPolicy.denied(path)) return error(call, "PATH_DENIED");
         String content = workspaces.files(call.runId(), call.snapshot()).get(path);
         if (content == null) return error(call, "FILE_NOT_FOUND", "No file at " + path + "; use list_files");
         return ok(call, call.snapshot(), Map.of("status", "OK", "content", content,
@@ -102,6 +105,7 @@ public final class ToolRouter {
                 !args.path("content").isTextual()) return error(call, "INVALID_ARGUMENTS");
         String path = args.path("path").asText();
         String content = args.path("content").asText();
+        if (ModelPathPolicy.denied(path)) return error(call, "PATH_DENIED");
         String current = workspaces.files(call.runId(), call.snapshot()).get(path);
         String actual = current == null ? "absent" : SnapshotHasher.content(current);
         if (!actual.equals(args.path("expectedSha256").asText()))

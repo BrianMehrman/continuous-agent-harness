@@ -13,12 +13,14 @@ import com.brianmehrman.harness.workspace.SnapshotRef;
 import com.brianmehrman.harness.workspace.WorkspaceStore;
 import com.brianmehrman.harness.workspace.WriteRequest;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import com.brianmehrman.harness.runner.Operation;
+import tools.jackson.databind.json.JsonMapper;
 
 class ToolRouterTest {
     private static final SnapshotRef START = new SnapshotRef("a".repeat(64));
@@ -156,15 +158,63 @@ class ToolRouterTest {
         assertNull(workspace.lastWrite);
     }
 
+    @Test void toolOutsideRoleSetIsRefused() {
+        var workspace = new MemoryWorkspace();
+        var router = new ToolRouter(workspace, new NoRunner(), new NoEvaluator(), new MemoryBlobs());
+        var call = new ToolInvocation("run-1", "write-1", START,
+                new ToolRequest("provider-1", "write_file",
+                        "{\"path\":\"NOTES.md\",\"expectedSha256\":\"absent\",\"content\":\"hello\"}"),
+                System.currentTimeMillis() + 10_000, List.of("list_files", "read_file"));
+
+        ToolOutcome outcome = router.route(call);
+
+        assertEquals("TOOL_NOT_ALLOWED", JsonMapper.builder().build()
+                .readTree(outcome.responseJson()).path("code").asText());
+        assertEquals(START, outcome.snapshot());
+        assertNull(outcome.failureCode());
+        assertNull(workspace.lastWrite);
+    }
+
+    @Test void deniedPathsAreHiddenAndRefused() {
+        var workspace = new MemoryWorkspace(Map.of(
+                "src/A.java", "class A {}", ".env", "hidden", "config/.env.local", "hidden",
+                "deploy/server.pem", "hidden", ".secrets/x", "hidden", "keys/id_ed25519", "hidden",
+                "keys/id_rsa_backup", "hidden", "deploy/server.key", "hidden", "deploy/store.p12", "hidden"));
+        var router = new ToolRouter(workspace, new NoRunner(), new NoEvaluator(), new MemoryBlobs());
+        var json = JsonMapper.builder().build();
+        long deadline = System.currentTimeMillis() + 10_000;
+
+        ToolOutcome listed = router.route(new ToolInvocation("run-1", "list-1", START,
+                new ToolRequest("provider-1", "list_files", "{}"), deadline));
+        assertEquals(List.of("src/A.java"), json.readTree(listed.responseJson()).path("paths")
+                .valueStream().map(node -> node.asText()).toList());
+        for (String path : List.of(".env", "config/.env.local", "deploy/server.pem", ".secrets/x",
+                "keys/id_ed25519", "keys/id_rsa_backup", "deploy/server.key", "deploy/store.p12")) {
+            for (String tool : List.of("read_file", "write_file")) {
+                String args = tool.equals("read_file") ? "{\"path\":\"" + path + "\"}"
+                        : "{\"path\":\"" + path + "\",\"expectedSha256\":\"absent\",\"content\":\"x\"}";
+                ToolOutcome outcome = router.route(new ToolInvocation("run-1", tool + path, START,
+                        new ToolRequest("provider-1", tool, args), deadline));
+                assertEquals("PATH_DENIED", json.readTree(outcome.responseJson()).path("code").asText(),
+                        tool + " " + path);
+                assertEquals(START, outcome.snapshot());
+                assertNull(outcome.failureCode());
+            }
+        }
+        assertNull(workspace.lastWrite);
+        assertFalse(ModelPathPolicy.denied("src/environment.java"));
+    }
+
 private static final class MemoryWorkspace implements WorkspaceStore {
         private WriteRequest lastWrite;
         private SnapshotRef lastReadSnapshot;
+        private final Map<String, String> contents;
+        private MemoryWorkspace() { this(Map.of("README.md", "hello")); }
+        private MemoryWorkspace(Map<String, String> contents) { this.contents = contents; }
         @Override public SnapshotRef seed(String runId, String benchmarkVersion) { throw new AssertionError(); }
         @Override public SortedMap<String, String> files(String runId, SnapshotRef ref) {
             lastReadSnapshot = ref;
-            var files = new TreeMap<String, String>();
-            files.put("README.md", "hello");
-            return files;
+            return new TreeMap<>(contents);
         }
         @Override public SnapshotRef write(WriteRequest request) {
             if (request.path().equals("build.gradle")) throw new IllegalArgumentException("Path is not writable");
