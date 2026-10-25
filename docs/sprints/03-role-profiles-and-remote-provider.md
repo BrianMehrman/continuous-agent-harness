@@ -1,6 +1,6 @@
 # Sprint 03 — Role profiles and a remote provider (M2)
 
-Status: In progress. Tasks 1–5 have merged; Task 6 is the current work package.
+Status: In progress. Tasks 1–6 have merged; Task 7 is the current work package.
 
 Milestone: [M2](../plans/roadmap.md#milestones)
 
@@ -25,7 +25,7 @@ Mark a row done only after its PR has merged. The plan's own checkboxes track pr
 | 3 | Anthropic adapter, file credentials, leak tests | 3 | [#35](https://github.com/BrianMehrman/continuous-agent-harness/pull/35) | [x] |
 | 4 | Create Anthropic profiles; key storage script | 4 | [#36](https://github.com/BrianMehrman/continuous-agent-harness/pull/36) | [x] |
 | 5 | Committed roles, frozen run terms, remote opt-in | 5 | [#37](https://github.com/BrianMehrman/continuous-agent-harness/pull/37) | [x] |
-| 6 | Role tool sets and secret-path deny list | 6 | — | [ ] |
+| 6 | Role tool sets and secret-path deny list | 6 | [#38](https://github.com/BrianMehrman/continuous-agent-harness/pull/38) | [x] |
 | 7 | Cost ledger, buffered limit, `COST_LIMIT` pause | 7 | — | [ ] |
 | 8 | CLI and console: role, model, cost, cost resume | 8 | — | [ ] |
 | 9 | Pinned gitleaks scan in CI | 9 | — | [ ] |

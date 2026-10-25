@@ -3,6 +3,7 @@ package com.brianmehrman.harness.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.Limits;
+import com.brianmehrman.harness.execution.ResumeCommand;
 import com.brianmehrman.harness.runs.RepositoryWorkService;
 import com.brianmehrman.harness.runs.StartCommand;
 import java.util.Map;
@@ -47,5 +48,7 @@ class RunOptionsRequestTest {
         String work = json.writeValueAsString(new RepositoryWorkService.CreateWorkRequest(
                 "one", "title", "instructions", "local"));
         assertEquals("{\"commandId\":\"one\",\"title\":\"title\",\"instructions\":\"instructions\",\"profileRevision\":\"local\"}", work);
+        String resume = json.writeValueAsString(new ResumeCommand("resume-one", 1, 2, 0, 0, null));
+        assertFalse(resume.contains("extraCostMicros"), "A retry of a pre-M2 resume keeps its input digest");
     }
 }

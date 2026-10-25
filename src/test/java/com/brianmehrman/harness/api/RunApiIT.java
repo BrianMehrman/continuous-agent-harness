@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.execution.Limits;
 import com.brianmehrman.harness.model.OllamaProfile;
+import com.brianmehrman.harness.model.AnthropicProfile;
+import com.brianmehrman.harness.model.Prices;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
@@ -136,6 +138,39 @@ class RunApiIT {
                 .POST(HttpRequest.BodyPublishers.ofString("x=y")).build();
         assertEquals(415, http.send(form, HttpResponse.BodyHandlers.ofString()).statusCode());
         assertFalse(request("GET", "/api/profiles", null).body().contains("credentialReference"));
+    }
+
+    @Test void costPauseResumeRequiresEnoughAddedBudget() throws Exception {
+        String profile = "api-cost-" + UUID.randomUUID();
+        profiles.save(new AnthropicProfile(profile, "anthropic", "https://api.anthropic.com",
+                "claude-haiku-5-5", "test_reference", 16384, 4096, 100000,
+                new Prices(100000, 500000, 125000, 10000), true));
+        String start = json.writeValueAsString(Map.of("commandId", "start-cost-" + UUID.randomUUID(),
+                "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
+                "limits", Limits.codingDefaults(), "allowRemote", true,
+                "costLimitMicros", 100000, "costBufferPercent", 10));
+        var accepted = request("POST", "/api/runs", start);
+        assertEquals(202, accepted.statusCode(), accepted.body());
+        String runId = json.readTree(accepted.body()).path("runId").asText();
+        String receipt = blobs.put("application/json", "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        jdbc.update("insert into model_attempt(run_id,invocation_id,attempt,input_sha256,status," +
+                        "request_blob_id,response_blob_id,ended_at,cost_micros,cost_estimated) " +
+                        "values (?,?,1,?,'RECORDED',?,?,now(),90000,false)",
+                runId, "cost-spent", "a".repeat(64), receipt, receipt);
+        typedEvent(runId, 1, 1, "PAUSED", "PAUSED", Map.of("reason", "COST_LIMIT"));
+
+        for (long extra : List.of(0L, 1000L)) {
+            String body = json.writeValueAsString(Map.of("commandId", "resume-cost-" + UUID.randomUUID(),
+                    "expectedVersion", 1, "extraCostMicros", extra));
+            assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", body).statusCode());
+        }
+        String enough = json.writeValueAsString(Map.of("commandId", "resume-cost-" + UUID.randomUUID(),
+                "expectedVersion", 1, "extraCostMicros", 5000));
+        assertEquals(202, request("POST", "/api/runs/" + runId + "/resume", enough).statusCode());
+        typedEvent(runId, 2, 2, "PAUSED", "PAUSED", Map.of("reason", "TURN_LIMIT"));
+        String overflow = json.writeValueAsString(Map.of("commandId", "resume-cost-" + UUID.randomUUID(),
+                "expectedVersion", 2, "extraTurns", 1, "extraCostMicros", Long.MAX_VALUE));
+        assertEquals(400, request("POST", "/api/runs/" + runId + "/resume", overflow).statusCode());
     }
 
     private void typedEvent(String runId, long sequence, long version, String status, String type,

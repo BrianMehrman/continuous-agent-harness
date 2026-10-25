@@ -199,6 +199,7 @@ public class RepositoryWorkService {
                 (rs,n) -> Map.of("commandId",rs.getString(1),"deliveryStatus",rs.getBoolean(2) ? "DELIVERED" : "ACCEPTED",
                         "applicationOutcome",rs.getString(3) == null ? "PENDING" : rs.getString(3)), runId));
         result.putAll(PauseHistory.read(jdbc, blobs, runId, (String)row[5]));
+        result.putAll(RunCost.read(jdbc, json, runId));
         return result;
     }
 

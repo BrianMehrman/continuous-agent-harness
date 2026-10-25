@@ -1,5 +1,6 @@
 package com.brianmehrman.harness.execution;
 
+import com.brianmehrman.harness.model.ModelReply;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,7 +25,8 @@ public class ModelAttemptStore {
     }
 
     public AttemptLease begin(String runId, String invocationId, int attempt,
-            String inputSha256, String requestBlobId) {
+            String inputSha256, String requestBlobId, CostTerms.Charge worstCase) {
+        Objects.requireNonNull(worstCase);
         if (runId == null || runId.isBlank() || invocationId == null || invocationId.isBlank() ||
                 attempt < 1 || attempt > 2 || inputSha256 == null || !inputSha256.matches("[0-9a-f]{64}") ||
                 requestBlobId == null || !requestBlobId.matches("[0-9a-f]{64}"))
@@ -47,31 +49,45 @@ public class ModelAttemptStore {
             if ("RECORDED".equals(row[2]))
                 return new AttemptLease(runId, invocationId, attempt, Outcome.RECORDED, null, row[3]);
             if ("IN_FLIGHT".equals(row[2]))
-                jdbc.update("update model_attempt set status='UNKNOWN',owner_token=null,ended_at=now() " +
+                jdbc.update("update model_attempt set status='UNKNOWN',owner_token=null,ended_at=now()," +
+                                "cost_micros=?,cost_estimated=? " +
                                 "where run_id=? and invocation_id=? and attempt=?",
-                        runId, invocationId, attempt);
+                        worstCase.micros(), worstCase.estimated(), runId, invocationId, attempt);
             return new AttemptLease(runId, invocationId, attempt, Outcome.UNKNOWN, null, null);
         });
     }
 
-    public boolean complete(AttemptLease lease, String responseBlobId) {
+    public boolean complete(AttemptLease lease, String responseBlobId, CostTerms.Charge charge) {
+        return complete(lease, responseBlobId, charge, null);
+    }
+
+    public boolean complete(AttemptLease lease, String responseBlobId, CostTerms.Charge charge, ModelReply reply) {
         Objects.requireNonNull(lease);
+        Objects.requireNonNull(charge);
         if (lease.outcome() != Outcome.STARTED || lease.ownerToken() == null ||
                 responseBlobId == null || !responseBlobId.matches("[0-9a-f]{64}"))
             throw new IllegalArgumentException("Invalid model receipt");
         return transactions.execute(status -> jdbc.update("update model_attempt set status='RECORDED'," +
-                        "owner_token=null,response_blob_id=?,ended_at=now() where run_id=? and invocation_id=? " +
+                        "owner_token=null,response_blob_id=?,ended_at=now(),cost_micros=?,cost_estimated=?," +
+                        "input_tokens=?,output_tokens=?,cache_write_tokens=?,cache_read_tokens=? " +
+                        "where run_id=? and invocation_id=? " +
                         "and attempt=? and status='IN_FLIGHT' and owner_token=?",
-                responseBlobId, lease.runId(), lease.invocationId(), lease.attempt(), lease.ownerToken()) == 1);
+                responseBlobId, charge.micros(), charge.estimated(),
+                reply == null ? null : reply.inputTokens(), reply == null ? null : reply.outputTokens(),
+                reply == null ? null : reply.cacheWriteTokens(), reply == null ? null : reply.cacheReadTokens(),
+                lease.runId(), lease.invocationId(), lease.attempt(), lease.ownerToken()) == 1);
     }
 
-    public boolean abandon(AttemptLease lease) {
+    public boolean abandon(AttemptLease lease, CostTerms.Charge worstCase) {
         Objects.requireNonNull(lease);
+        Objects.requireNonNull(worstCase);
         if (lease.outcome() != Outcome.STARTED || lease.ownerToken() == null)
             throw new IllegalArgumentException("Only an owned attempt can be abandoned");
         return transactions.execute(status -> jdbc.update("update model_attempt set status='UNKNOWN'," +
-                        "owner_token=null,ended_at=now() where run_id=? and invocation_id=? and attempt=? " +
+                        "owner_token=null,ended_at=now(),cost_micros=?,cost_estimated=? " +
+                        "where run_id=? and invocation_id=? and attempt=? " +
                         "and status='IN_FLIGHT' and owner_token=?",
+                worstCase.micros(), worstCase.estimated(),
                 lease.runId(), lease.invocationId(), lease.attempt(), lease.ownerToken()) == 1);
     }
 }
