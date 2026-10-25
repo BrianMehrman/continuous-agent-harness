@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.model.ModelCall;
 import com.brianmehrman.harness.model.ModelReply;
+import com.brianmehrman.harness.model.Prices;
 import com.brianmehrman.harness.model.ToolRequest;
 import com.brianmehrman.harness.workspace.SnapshotRef;
 import io.temporal.client.WorkflowOptions;
@@ -186,6 +187,55 @@ class CodingWorkflowTest {
         }
     }
 
+    @Test void costLimitPausesAtEffectiveLimitThenResumesWithExtraBudget() throws Exception {
+        var fixture = new ScriptedActivities(List.of(
+                pricedReply("read_file"), pricedReply("read_file"), pricedReply("read_file"),
+                pricedReply("submit")));
+        fixture.submitPassOn = 1;
+        try (var environment = TestWorkflowEnvironment.newInstance()) {
+            var worker = environment.newWorker("coding-cost-test");
+            worker.registerWorkflowImplementationTypes(UnversionedCodingWorkflow.class);
+            worker.registerActivitiesImplementations(fixture);
+            environment.start();
+            var workflow = environment.getWorkflowClient().newWorkflowStub(CodingWorkflow.class,
+                    WorkflowOptions.newBuilder().setWorkflowId(RUN).setTaskQueue("coding-cost-test").build());
+            var cost = new CostTerms(new Prices(1_000_000, 5_000_000, 0, 0),
+                    20_000, 2_000, 100_000L, 10);
+            var spec = new RunSpec(RUN, "start-cost", "f".repeat(64), "task-tracker-v1",
+                    "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
+                    Limits.codingDefaults(), PausePolicy.defaults(),
+                    new RunTerms("developer", "role-digest", "role-blob", List.of("read_file", "submit"),
+                            "model", true, cost));
+            var result = WorkflowClient.execute(workflow::run, spec);
+
+            RunView paused = awaitStatus(workflow, "PAUSED");
+            assertEquals(3, fixture.modelCalls, "Call four must wait for added budget");
+            assertEquals("REJECTED_LIMIT", workflow.resume(new ResumeCommand(
+                    "cost-zero", paused.version(), 0, 0, 0, null, 0)).deliveryStatus());
+            assertEquals("REJECTED_LIMIT", workflow.resume(new ResumeCommand(
+                    "cost-small", paused.version(), 0, 0, 0, null, 10_000)).deliveryStatus());
+            assertEquals("APPLIED", workflow.resume(new ResumeCommand(
+                    "cost-enough", paused.version(), 0, 0, 0, null, 50_000)).deliveryStatus());
+
+            assertEquals("SUCCEEDED", result.get(5, TimeUnit.SECONDS).status());
+            assertEquals(4, fixture.modelCalls);
+            var pausedEvent = fixture.eventDetails.get(fixture.events.indexOf("PAUSED"));
+            assertEquals("COST_LIMIT", pausedEvent.get("reason"));
+            assertEquals(3, ((Number) pausedEvent.get("turnsUsed")).intValue());
+            assertEquals(90_000L, ((Number) ((java.util.Map<?, ?>) pausedEvent.get("cost"))
+                    .get("effectiveLimitMicros")).longValue());
+            assertEquals(30_000L, ((Number) ((java.util.Map<?, ?>) pausedEvent.get("cost"))
+                    .get("nextCallWorstCaseMicros")).longValue());
+            var resumedEvent = fixture.eventDetails.get(fixture.events.indexOf("RESUMED"));
+            assertEquals(50_000L, ((Number) resumedEvent.get("extraCostMicros")).longValue());
+        }
+    }
+
+    private static ModelReply pricedReply(String tool) {
+        return new ModelReply("", List.of(new ToolRequest("provider-1", tool, "{}")),
+                20_000L, 2_000L, "tool_calls");
+    }
+
     private static RunView awaitStatus(CodingWorkflow workflow, String status) throws InterruptedException {
         for (int i = 0; i < 250; i++) {
             RunView view = workflow.current();
@@ -208,10 +258,12 @@ class CodingWorkflowTest {
         private String cancelledRunner;
         private long modelDelayMillis;
         private int submissions;
+        private int submitPassOn = 2;
         private boolean released;
         private int unconfirmedStops;
         private int stopRequests;
         private final List<String> events = new ArrayList<>();
+        private final List<java.util.Map<String, Object>> eventDetails = new ArrayList<>();
         private String hint;
         private int textOnly;
 
@@ -263,7 +315,7 @@ class CodingWorkflowTest {
             };
             boolean submit = "submit".equals(name);
             if (submit) submissions++;
-            boolean passed = submit && submissions == 2;
+            boolean passed = submit && submissions == submitPassOn;
             return new ToolOutcome(call.invocationId(), call.request().providerCallId(), name,
                     snapshot, "{\"status\":\"OK\"}", submit, passed);
         }
@@ -276,7 +328,10 @@ class CodingWorkflowTest {
         }
         @Override public String resumeConversation(String blobId, String hint) { this.hint = hint; return blobId; }
         @Override public void publishEvent(String runId, long sequence, long version, String status,
-                String snapshotSha256, String type, java.util.Map<String, Object> detail) { events.add(type); }
+                String snapshotSha256, String type, java.util.Map<String, Object> detail) {
+            events.add(type);
+            eventDetails.add(detail);
+        }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) { publishedStatuses.add(status); }
         @Override public boolean cancelRunner(String invocationId) {

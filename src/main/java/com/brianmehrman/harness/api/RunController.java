@@ -31,7 +31,8 @@ public class RunController {
             "costLimitMicros", "costBufferPercent");
     private static final Set<String> CANCEL = Set.of("commandId", "expectedVersion");
     private static final Set<String> RESUME_REQUIRED = Set.of("commandId", "expectedVersion");
-    private static final Set<String> RESUME_OPTIONAL = Set.of("extraTurns", "extraToolCalls", "extraMinutes", "hint");
+    private static final Set<String> RESUME_OPTIONAL = Set.of("extraTurns", "extraToolCalls", "extraMinutes",
+            "extraCostMicros", "hint");
     private static final Set<String> LIMITS = Set.of("modelTurns", "toolCalls", "modelAttempts",
             "perTurnModelAttempts", "runnerAttempts", "modelAttemptMillis", "buildTestMillis",
             "evaluationMillis", "fileOperationMillis", "runMillis");
@@ -117,9 +118,10 @@ public class RunController {
     static ResumeCommand resumeCommand(String body) {
         Map<String, Object> data = object(body, RESUME_REQUIRED, RESUME_OPTIONAL);
         try {
+            Long extraCost = optionalLong(data, "extraCostMicros");
             return new ResumeCommand(string(data, "commandId"), version(data), count(data, "extraTurns"),
                     count(data, "extraToolCalls"), count(data, "extraMinutes"),
-                    data.get("hint") == null ? null : string(data, "hint"));
+                    data.get("hint") == null ? null : string(data, "hint"), extraCost == null ? 0 : extraCost);
         } catch (IllegalArgumentException invalid) { throw new BadInput(invalid.getMessage()); }
     }
 

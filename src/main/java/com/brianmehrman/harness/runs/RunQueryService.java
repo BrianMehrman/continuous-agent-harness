@@ -55,6 +55,7 @@ public class RunQueryService {
         result.put("projection", view);
         result.put("commands", commands);
         result.putAll(PauseHistory.read(jdbc, blobs, runId, view.status()));
+        result.putAll(RunCost.read(jdbc, json, runId));
         return result;
     }
 

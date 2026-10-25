@@ -4,6 +4,7 @@ import com.brianmehrman.harness.benchmark.Evaluator;
 import com.brianmehrman.harness.model.ModelCall;
 import com.brianmehrman.harness.model.ModelReply;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
+import com.brianmehrman.harness.model.Prices;
 import com.brianmehrman.harness.runner.Runner;
 import com.brianmehrman.harness.runs.BlobStore;
 import com.brianmehrman.harness.runs.RunEvent;
@@ -109,11 +110,17 @@ public class RunActivitiesImpl implements RunActivities {
     }
 
     @Override public ModelReply callModel(ModelCall call) {
+        String specJson = jdbc.queryForObject("select spec_json::text from run_request where run_id=?",
+                String.class, call.runId());
+        RunSpec spec = json.readValue(specJson, RunSpec.class);
+        CostTerms cost = spec.terms() == null || spec.terms().cost() == null
+                ? new CostTerms(Prices.FREE, 0, 0, null, 10) : spec.terms().cost();
+        CostTerms.Charge worstCase = cost.worstCase();
         String requestJson = json.writeValueAsString(call);
         String requestBlob = blobs.put("application/vnd.harness.model-request+json",
                 requestJson.getBytes(StandardCharsets.UTF_8));
         String input = SnapshotHasher.content("model-call-v1\n" + requestJson);
-        var lease = attempts.begin(call.runId(), call.invocationId(), call.attempt(), input, requestBlob);
+        var lease = attempts.begin(call.runId(), call.invocationId(), call.attempt(), input, requestBlob, worstCase);
         if (lease.outcome() == ModelAttemptStore.Outcome.RECORDED)
             return json.readValue(blobs.get(lease.responseBlobId()), ModelReply.class);
         if (lease.outcome() == ModelAttemptStore.Outcome.UNKNOWN)
@@ -121,11 +128,12 @@ public class RunActivitiesImpl implements RunActivities {
         String status = projections.view(call.runId()).status();
         if (System.currentTimeMillis() >= call.deadlineEpochMillis() ||
                 RunStatus.isTerminal(status) || "CANCEL_REQUESTED".equals(status) || "STOPPING".equals(status)) {
-            attempts.abandon(lease);
+            attempts.abandon(lease, new CostTerms.Charge(0, false));
             throw ApplicationFailure.newNonRetryableFailure(
                     "Model attempt was not dispatched before its run state or deadline changed",
-                    "MODEL_ATTEMPT_UNKNOWN");
+                    "MODEL_ATTEMPT_NOT_DISPATCHED");
         }
+        boolean dispatchedToProvider = false;
         try (var attempt = telemetry.modelAttempt(call)) {
             ModelCall dispatched = call;
             byte[] conversation = blobs.get(call.conversationBlobId());
@@ -136,20 +144,23 @@ public class RunActivitiesImpl implements RunActivities {
                 dispatched = new ModelCall(call.runId(), call.invocationId(), call.attempt(),
                         call.profileRevision(), rendered, call.deadlineEpochMillis(), call.tools());
             }
-            ModelReply reply = adapters.forProfile(profiles.get(call.profileRevision())).call(dispatched);
+            var adapter = adapters.forProfile(profiles.get(call.profileRevision()));
+            dispatchedToProvider = true;
+            ModelReply reply = adapter.call(dispatched);
             String responseBlob = blobs.put("application/vnd.harness.model-reply+json", json.writeValueAsBytes(reply));
-            if (!attempts.complete(lease, responseBlob))
+            if (!attempts.complete(lease, responseBlob, cost.charge(reply), reply))
                 throw ApplicationFailure.newNonRetryableFailure("Model attempt lost ownership", "MODEL_ATTEMPT_UNKNOWN");
             attempt.succeeded();
             return reply;
         } catch (RuntimeException failure) {
-            attempts.abandon(lease);
+            attempts.abandon(lease, dispatchedToProvider ? worstCase : new CostTerms.Charge(0, false));
             if (failure instanceof IllegalArgumentException &&
                     failure.getMessage() != null && failure.getMessage().contains("MODEL_CONTEXT_OVERFLOW"))
                 throw ApplicationFailure.newNonRetryableFailureWithCause(
                         "Model context exceeds the selected profile", "MODEL_CONTEXT_OVERFLOW", failure);
             throw ApplicationFailure.newNonRetryableFailureWithCause(
-                    "Model attempt ended without a response receipt", "MODEL_ATTEMPT_UNKNOWN", failure);
+                    "Model attempt ended without a response receipt",
+                    dispatchedToProvider ? "MODEL_ATTEMPT_UNKNOWN" : "MODEL_ATTEMPT_NOT_DISPATCHED", failure);
         }
     }
 

@@ -3,9 +3,14 @@ package com.brianmehrman.harness.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.brianmehrman.harness.model.OllamaProfile;
+import com.brianmehrman.harness.model.AnthropicProfile;
+import com.brianmehrman.harness.model.Prices;
 import com.brianmehrman.harness.model.ProfileRevisionStore;
 import com.brianmehrman.harness.execution.RunSpec;
 import com.brianmehrman.harness.execution.RunAdmissionStore;
+import com.brianmehrman.harness.execution.ModelAttemptStore;
+import com.brianmehrman.harness.execution.CostTerms;
+import com.brianmehrman.harness.model.ModelReply;
 import com.brianmehrman.harness.runs.RepositoryWorkService;
 import com.brianmehrman.harness.runs.ReviewArtifactService;
 import com.brianmehrman.harness.runs.BlobStore;
@@ -56,6 +61,7 @@ class WorkApiIT {
     @Autowired ProfileRevisionStore profiles;
     @Autowired JdbcTemplate jdbc;
     @Autowired RunAdmissionStore admission;
+    @Autowired ModelAttemptStore attempts;
     @Autowired RepositoryWorkService work;
     @Autowired ReviewArtifactService reviews;
     @Autowired WorkspaceStore workspace;
@@ -147,6 +153,45 @@ class WorkApiIT {
         assertNull(jdbc.queryForObject("select delivered_at from run_command where command_id=?",
                 java.sql.Timestamp.class, startCommand));
         assertEquals("CANCELLED", work.detail(runId).get("status"));
+    }
+
+    @Test void detailShowsRecordedAndEstimatedSpendWithAppliedCostExtension() throws Exception {
+        String profile = "work-cost-" + UUID.randomUUID();
+        profiles.save(new AnthropicProfile(profile, "anthropic", "https://api.anthropic.com",
+                "claude-haiku-5-5", "test_reference", 16384, 4096, 100000,
+                new Prices(100000, 500000, 125000, 10000), true));
+        String body = json.writeValueAsString(Map.of("commandId", "work-cost-" + UUID.randomUUID(),
+                "title", "Cost detail", "instructions", "Edit a Java source file",
+                "profileRevision", profile, "allowRemote", true, "costLimitMicros", 100000,
+                "costBufferPercent", 10));
+        var created = request("POST", "/api/work", body);
+        assertEquals(202, created.statusCode(), created.body());
+        String runId = json.readTree(created.body()).path("workId").asText();
+        String requestBlob = blobs.put("application/json", "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String responseBlob = blobs.put("application/json", "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var lease = attempts.begin(runId, "cost-exact", 1, "a".repeat(64), requestBlob,
+                new CostTerms.Charge(3277, true));
+        assertTrue(attempts.complete(lease, responseBlob, new CostTerms.Charge(236, false),
+                new ModelReply("", List.of(), 1201L, 80L, "end_turn", 600L, 0L)));
+        assertEquals(1201L, jdbc.queryForObject("select input_tokens from model_attempt " +
+                "where run_id=? and invocation_id='cost-exact'", Long.class, runId));
+        jdbc.update("insert into model_attempt(run_id,invocation_id,attempt,input_sha256,status," +
+                        "request_blob_id,ended_at,cost_micros,cost_estimated) " +
+                        "values (?,?,1,?,'UNKNOWN',?,now(),3277,true)",
+                runId, "cost-unknown", "b".repeat(64), requestBlob);
+        String resume = json.writeValueAsString(new com.brianmehrman.harness.execution.ResumeCommand(
+                "resume-cost-" + UUID.randomUUID(), 1, 0, 0, 0, null, 50_000));
+        jdbc.update("insert into run_command(command_id,run_id,kind,payload_sha256,payload_json," +
+                        "delivered_at,outcome_json) values (?,?,'RESUME',?,?::jsonb,now(),?::jsonb)",
+                json.readTree(resume).path("commandId").asText(), runId, "c".repeat(64), resume,
+                "{\"deliveryStatus\":\"APPLIED\"}");
+
+        JsonNode cost = json.readTree(request("GET", "/api/work/" + runId, null).body()).path("cost");
+        assertEquals(3513, cost.path("spentMicros").asLong());
+        assertEquals(3277, cost.path("estimatedMicros").asLong());
+        assertEquals(150000, cost.path("limitMicros").asLong());
+        assertEquals(135000, cost.path("effectiveLimitMicros").asLong());
+        assertEquals(10, cost.path("bufferPercent").asInt());
     }
 
     @Test void admissionWaitsForOlderDeliveredWork() throws Exception {

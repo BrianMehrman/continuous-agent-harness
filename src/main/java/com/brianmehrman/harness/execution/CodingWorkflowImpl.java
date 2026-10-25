@@ -39,12 +39,17 @@ public class CodingWorkflowImpl implements CodingWorkflow {
     private String pauseReason;
     private boolean stopRequested;
     private String lastNote;
+    private CostTerms costTerms;
+    private Long limitMicros;
+    private long spentMicros, estimatedMicros;
 
     @WorkflowVersioningBehavior(VersioningBehavior.PINNED)
     @Override public RunView run(RunSpec input) {
         spec = input;
         snapshot = input.seedSnapshotSha256();
         policy = input.policy();
+        costTerms = input.terms() == null ? null : input.terms().cost();
+        limitMicros = costTerms == null ? null : costTerms.limitMicros();
         turnsGranted = input.limits().modelTurns();
         toolsGranted = input.limits().toolCalls();
         attemptsGranted = input.limits().modelAttempts();
@@ -66,11 +71,22 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 conversation = resumed.conversation();
                 continue;
             }
+            if (nextCallExceedsLimit()) {
+                Resumed resumed = pause("COST_LIMIT", null, conversation, turn, toolCount);
+                if (resumed.terminal() != null) return resumed.terminal();
+                conversation = resumed.conversation();
+                continue;
+            }
             turn++;
             String invocation = input.runId() + ":turn-" + turn;
             ModelReply reply = null;
             for (int attempt = 1; attempt <= input.limits().perTurnModelAttempts(); attempt++) {
                 if (cancelRequested) return terminal("CANCELLED");
+                if (attempt > 1 && nextCallExceedsLimit()) {
+                    Resumed resumed = pause("COST_LIMIT", null, conversation, turn, toolCount);
+                    if (resumed.terminal() != null) return resumed.terminal();
+                    conversation = resumed.conversation();
+                }
                 dispatched++;
                 long modelDeadline = Workflow.currentTimeMillis() + input.limits().modelAttemptMillis();
                 try {
@@ -78,12 +94,14 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                     reply = timedActivities(modelDeadline, 2).callModel(new ModelCall(input.runId(), invocation, attempt,
                             input.profileRevision(), conversation, modelDeadline,
                             input.terms() == null ? null : input.terms().tools()));
+                    addCharge(costTerms == null ? null : costTerms.charge(reply));
                     break;
                 } catch (ActivityFailure error) {
                     if (cancelRequested) return terminal("CANCELLED");
                     String failureType = modelFailureType(error);
                     if ("MODEL_CONTEXT_OVERFLOW".equals(failureType)) return terminal("CONTEXT_OVERFLOW");
                     if (!"MODEL_ATTEMPT_UNKNOWN".equals(failureType)) return terminal("INFRASTRUCTURE_FAILED");
+                    addCharge(costTerms == null ? null : costTerms.worstCase());
                 }
             }
             if (reply == null) return terminal("INFRASTRUCTURE_FAILED");
@@ -246,6 +264,19 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         return activeMillisUsed + Workflow.currentTimeMillis() - segmentStartedAt >= activeMillisGranted;
     }
 
+    private boolean nextCallExceedsLimit() {
+        if (costTerms == null || limitMicros == null) return false;
+        long effective = costTerms.effectiveLimit(limitMicros);
+        long worst = costTerms.worstCase().micros();
+        return spentMicros > effective || worst > effective - spentMicros;
+    }
+
+    private void addCharge(CostTerms.Charge charge) {
+        if (charge == null) return;
+        spentMicros = Math.addExact(spentMicros, charge.micros());
+        if (charge.estimated()) estimatedMicros = Math.addExact(estimatedMicros, charge.micros());
+    }
+
     private Resumed pause(String reason, WorkingMemory.StallVerdict stall, String conversation, int turn, int tools) {
         activeMillisUsed += Workflow.currentTimeMillis() - segmentStartedAt;
         boolean exhausted = resumesApplied >= policy.maxResumes();
@@ -260,6 +291,7 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         detail.put("toolCallsGranted", toolsGranted);
         detail.put("activeMillisUsed", activeMillisUsed);
         detail.put("activeMillisGranted", activeMillisGranted);
+        detail.put("cost", costDetail());
         detail.put("note", lastNote);
         detail.put("waitUntil", exhausted ? null
                 : Instant.ofEpochMilli(Workflow.currentTimeMillis() + policy.waitMillis()).toString());
@@ -299,12 +331,14 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         attemptsGranted += 2 * resume.extraTurns();
         toolsGranted += resume.extraToolCalls();
         activeMillisGranted += resume.extraMinutes() * 60_000L;
+        if (limitMicros != null) limitMicros = Math.addExact(limitMicros, resume.extraCostMicros());
         String next = activities.resumeConversation(conversation, resume.hint());
         var resumed = new java.util.LinkedHashMap<String, Object>();
         resumed.put("commandId", resume.commandId());
         resumed.put("extraTurns", resume.extraTurns());
         resumed.put("extraToolCalls", resume.extraToolCalls());
         resumed.put("extraMinutes", resume.extraMinutes());
+        resumed.put("extraCostMicros", resume.extraCostMicros());
         resumed.put("hint", resume.hint());
         resumed.put("summary", resume.hint() == null ? "Resumed with more budget" : "Resumed with an operator hint");
         event("RESUMED", resumed);
@@ -313,6 +347,18 @@ public class CodingWorkflowImpl implements CodingWorkflow {
         if (refused != null) return new Resumed(refused, null);
         transition("RUNNING");
         return new Resumed(null, next);
+    }
+
+    private Map<String, Object> costDetail() {
+        if (costTerms == null || limitMicros == null && costTerms.prices().free()) return null;
+        var detail = new java.util.LinkedHashMap<String, Object>();
+        detail.put("spentMicros", spentMicros);
+        detail.put("estimatedMicros", estimatedMicros);
+        detail.put("effectiveLimitMicros", limitMicros == null ? null : costTerms.effectiveLimit(limitMicros));
+        detail.put("limitMicros", limitMicros);
+        detail.put("bufferPercent", costTerms.bufferPercent());
+        detail.put("nextCallWorstCaseMicros", costTerms.worstCase().micros());
+        return detail;
     }
 
     private static String pauseOutcome(String reason) {
@@ -341,6 +387,9 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                     "TURN_LIMIT".equals(pauseReason) && command.extraTurns() <= 0 ||
                     "TOOL_LIMIT".equals(pauseReason) && command.extraToolCalls() <= 0 ||
                     "TIME_LIMIT".equals(pauseReason) && command.extraMinutes() <= 0 || command.extraTurns() > policy.resumeTurns() ||
+                    !canExtendCost(command.extraCostMicros()) ||
+                    "COST_LIMIT".equals(pauseReason) && (command.extraCostMicros() <= 0 ||
+                            !canResumeCost(command.extraCostMicros())) ||
                     command.extraToolCalls() > policy.resumeToolCalls() || command.extraMinutes() > policy.resumeMinutes() ||
                     extraTurnsApplied + command.extraTurns() > policy.totalExtraTurns() ||
                     extraToolCallsApplied + command.extraToolCalls() > policy.totalExtraToolCalls() ||
@@ -353,6 +402,21 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             resumeRequest = command;
             return "APPLIED";
         });
+    }
+
+    private boolean canExtendCost(long extraCostMicros) {
+        if (limitMicros == null) return true;
+        try { Math.addExact(limitMicros, extraCostMicros); return true; }
+        catch (ArithmeticException overflow) { return false; }
+    }
+
+    private boolean canResumeCost(long extraCostMicros) {
+        if (costTerms == null || limitMicros == null) return false;
+        long nextLimit;
+        try { nextLimit = Math.addExact(limitMicros, extraCostMicros); }
+        catch (ArithmeticException overflow) { return false; }
+        long effective = costTerms.effectiveLimit(nextLimit);
+        return spentMicros <= effective && costTerms.worstCase().micros() <= effective - spentMicros;
     }
 
     @Override public CommandResult stop(StopCommand command) {

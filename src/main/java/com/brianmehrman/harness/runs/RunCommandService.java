@@ -93,8 +93,9 @@ public class RunCommandService {
         Objects.requireNonNull(command);
         if (!exists(command.commandId())) {
             requirePaused(runId);
-            PausePolicy policy = json.readValue(jdbc.queryForObject("select spec_json::text from run_request where run_id=?",
-                    String.class, runId), RunSpec.class).policy();
+            RunSpec spec = json.readValue(jdbc.queryForObject("select spec_json::text from run_request where run_id=?",
+                    String.class, runId), RunSpec.class);
+            PausePolicy policy = spec.policy();
             if (command.extraTurns() > policy.resumeTurns() || command.extraToolCalls() > policy.resumeToolCalls() ||
                     command.extraMinutes() > policy.resumeMinutes())
                 throw new IllegalArgumentException("Resume exceeds the per-resume ceiling");
@@ -103,6 +104,7 @@ public class RunCommandService {
                     "TOOL_LIMIT".equals(reached) && command.extraToolCalls() <= 0 ||
                     "TIME_LIMIT".equals(reached) && command.extraMinutes() <= 0)
                 throw new IllegalArgumentException("Resume must extend the limit that was reached: " + reached);
+            validateCostExtension(runId, spec, command, reached);
             var prior = jdbc.query("select payload_json::text from run_command where run_id=? and kind='RESUME' " +
                             "and (delivered_at is null or outcome_json->>'deliveryStatus'='APPLIED')",
                     (rs, row) -> json.readValue(rs.getString(1), ResumeCommand.class), runId);
@@ -113,6 +115,31 @@ public class RunCommandService {
                 throw new IllegalArgumentException("Resume exceeds the run's extension ceiling");
         }
         return control(runId, "RESUME", command.commandId(), command);
+    }
+
+    private void validateCostExtension(String runId, RunSpec spec, ResumeCommand command, String reason) {
+        String message = "Resume must raise the cost limit above the next call's worst case";
+        if ("COST_LIMIT".equals(reason) && command.extraCostMicros() <= 0)
+            throw new IllegalArgumentException(message);
+        if (command.extraCostMicros() == 0) return;
+        if (spec.terms() == null || spec.terms().cost() == null) {
+            if ("COST_LIMIT".equals(reason)) throw new IllegalArgumentException(message);
+            return;
+        }
+        @SuppressWarnings("unchecked") var current = (java.util.Map<String, Object>) RunCost.read(jdbc, json, runId).get("cost");
+        if (current == null || current.get("limitMicros") == null) {
+            if ("COST_LIMIT".equals(reason)) throw new IllegalArgumentException(message);
+            return;
+        }
+        long limit;
+        try { limit = Math.addExact((Long) current.get("limitMicros"), command.extraCostMicros()); }
+        catch (ArithmeticException overflow) { throw new IllegalArgumentException(message, overflow); }
+        if ("COST_LIMIT".equals(reason)) {
+            long spent = (Long) current.get("spentMicros");
+            long effective = spec.terms().cost().effectiveLimit(limit);
+            if (spent > effective || spec.terms().cost().worstCase().micros() > effective - spent)
+                throw new IllegalArgumentException(message);
+        }
     }
 
     public CommandResult stop(String runId, StopCommand command) {
