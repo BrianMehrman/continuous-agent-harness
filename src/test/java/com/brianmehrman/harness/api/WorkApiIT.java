@@ -186,7 +186,10 @@ class WorkApiIT {
                 json.readTree(resume).path("commandId").asText(), runId, "c".repeat(64), resume,
                 "{\"deliveryStatus\":\"APPLIED\"}");
 
-        JsonNode cost = json.readTree(request("GET", "/api/work/" + runId, null).body()).path("cost");
+        JsonNode detail = json.readTree(request("GET", "/api/work/" + runId, null).body());
+        assertEquals("developer", detail.path("role").asText());
+        assertEquals("claude-haiku-5-5", detail.path("model").asText());
+        JsonNode cost = detail.path("cost");
         assertEquals(3513, cost.path("spentMicros").asLong());
         assertEquals(3277, cost.path("estimatedMicros").asLong());
         assertEquals(150000, cost.path("limitMicros").asLong());

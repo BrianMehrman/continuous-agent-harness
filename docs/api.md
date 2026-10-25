@@ -24,6 +24,7 @@ The following uses the API with a selected installed local Ollama model. The wor
 python3 scripts/harness.py probe qwen3.8:latest
 python3 scripts/harness.py profiles
 python3 scripts/harness.py start --profile PROFILE_ID --command-id local-attempt-1
+python3 scripts/harness.py start --profile REMOTE_PROFILE_ID --role developer --allow-remote --cost-limit 0.10 --cost-buffer 10
 python3 scripts/harness.py status RUN_ID
 python3 scripts/harness.py events RUN_ID --after 0 --follow
 ```
@@ -47,16 +48,17 @@ The downloaded file is output data; inspect it with an editor or JSON viewer. Ru
 
 ## Pause and resume
 
-A run that stops making progress or reaches a limit pauses instead of failing. Events `NUDGED`, `PAUSED`, `RESUMED`, and `STOPPED` record the ladder. Pause reasons are `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, and `TIME_LIMIT`; a run that is stopped, or whose 7-day waiting limit passes, ends with its pause reason: `STALLED` as `STALLED`, `TURN_LIMIT` and `TOOL_LIMIT` as `LIMIT_EXHAUSTED`, and `TIME_LIMIT` as `EXPIRED`. A resume must extend the limit that was reached (`extraTurns`, `extraToolCalls` or `extraMinutes` above 0 for `TURN_LIMIT`, `TOOL_LIMIT` or `TIME_LIMIT`); the API answers `400` otherwise. A `STALLED` pause accepts any resume. Run and work detail views add `pause` (only while `PAUSED`), `resumes`, `nudges`, and `label`: `assisted` if any resume carried a hint, `extended` if resumes only added limits, otherwise null; an assisted pass is never an unassisted completion. The work list adds `paused` and `pausedRuns`.
+A run that stops making progress or reaches a limit pauses instead of failing. Events `NUDGED`, `PAUSED`, `RESUMED`, and `STOPPED` record the ladder. Pause reasons are `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, `TIME_LIMIT`, and `COST_LIMIT`; a run that is stopped, or whose 7-day waiting limit passes, ends with its pause reason: `STALLED` as `STALLED`, `TURN_LIMIT`, `TOOL_LIMIT`, and `COST_LIMIT` as `LIMIT_EXHAUSTED`, and `TIME_LIMIT` as `EXPIRED`. A resume must extend the limit that was reached (`extraTurns`, `extraToolCalls`, `extraMinutes`, or `extraCostMicros` above 0 for the matching limit); the API answers `400` otherwise. A `STALLED` pause accepts any resume. Run and work detail views add `pause` (only while `PAUSED`), `resumes`, `nudges`, and `label`: `assisted` if any resume carried a hint, `extended` if resumes only added limits, otherwise null; an assisted pass is never an unassisted completion. The work list adds `paused` and `pausedRuns`.
 
 Read `projection.version` from `status`, then resume with extra allowance or stop:
 
 ```sh
 python3 scripts/harness.py resume RUN_ID --expected-version VERSION --turns 20 --hint "Check the failing test first"
+python3 scripts/harness.py resume RUN_ID --expected-version VERSION --cost 0.50
 python3 scripts/harness.py stop RUN_ID --expected-version VERSION
 ```
 
-`--tools N` and `--minutes N` grant extra tool calls and minutes. Ceilings are per resume 40 turns, 100 tool calls, and 30 minutes; per run 3 resumes, 120 extra turns, 300 extra tool calls, and 90 extra minutes. A hint is at most 2,000 characters and reaches only the conversation. A run with no resumes left ends with its pause reason at its next pause.
+`--tools N` and `--minutes N` grant extra tool calls and minutes. `--cost DOLLARS` raises the frozen cost limit; a `COST_LIMIT` resume must add enough to cover the next call's worst case after the buffer. Ceilings are per resume 40 turns, 100 tool calls, and 30 minutes; per run 3 resumes, 120 extra turns, 300 extra tool calls, and 90 extra minutes. A hint is at most 2,000 characters and reaches only the conversation. A run with no resumes left ends with its pause reason at its next pause.
 
 ## HTTP contract
 
@@ -71,14 +73,14 @@ python3 scripts/harness.py stop RUN_ID --expected-version VERSION
 | `POST /api/runs/{id}/resume` | Accept `{commandId, expectedVersion, extraTurns?, extraToolCalls?, extraMinutes?, extraCostMicros?, hint?}` for a `PAUSED` run; return `202`. `409` if the run is not paused, the version is stale, or the command ID was used with different input; `400` above a per-resume or per-run ceiling, for a cost extension too small to cover the next call, or for malformed input. |
 | `POST /api/runs/{id}/stop` | Accept `{commandId, expectedVersion}` for a `PAUSED` run; return `202`. The run ends with its pause reason. Same `409` rules. |
 | `POST /api/work/{id}/resume`, `POST /api/work/{id}/stop` | Same bodies and responses for repository work items. |
-| `GET /api/profiles` | List frozen local profile settings without credential references. |
+| `GET /api/profiles` | List frozen local and remote profile settings, including `modelName`, `remote`, and `boundToDeveloper`, without credential references. |
 | `POST /api/profiles/probe` | Probe `{modelTag}` against installed local Ollama inventory and save a verified profile. |
 | `GET /api/runs/{id}/artifacts/{digest}` | Download a run-associated SHA-256 blob as an attachment. |
 
-All mutations require `Content-Type: application/json` and exact fields. `400` means malformed or unsupported input, `404` means unknown run or artifact, `409` means a conflicting command identity or currently stale cancellation version, and `503` means required local authority or model probing is unavailable. A supplied command ID is global and must not be reused for a different operation. The initial API is for a trusted local operator on loopback; it requires a loopback `Host` for every API request, rejects foreign browser Origin and Fetch-Site mutation requests, and does not enable CORS. It is not a hosted multi-user authentication boundary.
+All mutations require `Content-Type: application/json` and exact fields. `400` means malformed or unsupported input, including `REMOTE_NOT_ALLOWED`, `COST_LIMIT_REQUIRED`, `INVALID_COST_BUFFER`, `ROLE_UNKNOWN`, or `ROLE_UNBOUND`; `404` means unknown run or artifact, `409` means a conflicting command identity or currently stale cancellation version, and `503` means required local authority or model probing is unavailable. A supplied command ID is global and must not be reused for a different operation. The initial API is for a trusted local operator on loopback; it requires a loopback `Host` for every API request, rejects foreign browser Origin and Fetch-Site mutation requests, and does not enable CORS. It is not a hosted multi-user authentication boundary.
 
 The role defaults to `developer`. If `profileRevision` is omitted, configure `harness.roles.developer.profile` with a saved profile ID. A remote profile requires `allowRemote: true`; a priced profile also requires a positive `costLimitMicros`. `costBufferPercent` defaults to 10 and accepts 0–50. The accepted run stores the role content and these terms; changing the local role file or binding later does not change it.
 
-Run and work detail include `cost` with `spentMicros`, `estimatedMicros`, `effectiveLimitMicros`, `limitMicros`, and `bufferPercent`. It is null for a free profile without a limit. A priced run pauses with reason `COST_LIMIT` before its next model call could exceed the effective limit; resume it with enough `extraCostMicros` to cover that call. The CLI and console controls for these fields are planned for M2 Task 8.
+Run and work detail include the frozen `role` and `model`, plus `cost` with `spentMicros`, `estimatedMicros`, `effectiveLimitMicros`, `limitMicros`, and `bufferPercent`. `cost` is null for a free profile without a limit. A priced run pauses with reason `COST_LIMIT` before its next model call could exceed the effective limit; resume it with enough `extraCostMicros` to cover that call. The CLI accepts dollar amounts with up to six decimal places and converts them to integer micros. The console shows the remote opt-in and cost fields for a remote model, cost in run detail, and an extra budget field for a cost pause.
 
 The default limits are encoded in `scripts/harness.py`. Supply `--limits limits.json` to start with all ten explicit bounds. `events --follow` resumes from its last printed sequence after a transient connection failure or temporary `5xx` response. The CLI's `--url` option accepts only a loopback HTTP origin.

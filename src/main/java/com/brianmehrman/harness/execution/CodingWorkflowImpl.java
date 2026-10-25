@@ -106,7 +106,8 @@ public class CodingWorkflowImpl implements CodingWorkflow {
             }
             if (reply == null) return terminal("INFRASTRUCTURE_FAILED");
             if ("repository-v1".equals(input.benchmarkVersion()))
-                progress("MODEL_RECORDED", "model", "Model response recorded", null);
+                progress("MODEL_RECORDED", "model", input.terms() == null ? "Model response recorded" :
+                        "Model response recorded · " + input.terms().roleName() + " · " + input.terms().modelName(), null);
             var outcomes = new ArrayList<ToolOutcome>();
             String budgetPause = null;
             for (int index = 0; index < reply.tools().size(); index++) {

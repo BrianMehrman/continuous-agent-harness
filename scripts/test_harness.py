@@ -77,6 +77,47 @@ class AnthropicProfileCliTest(unittest.TestCase):
         })
 
 
+class CostCliTest(unittest.TestCase):
+    def test_start_uses_role_binding_without_profile_override(self):
+        with patch.object(harness.ApiClient, "request", return_value={"runId": "run-1", "commandId": "cmd-1"}) as request:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(0, harness.main(["start", "--command-id", "cmd-1"]))
+        self.assertNotIn("profileRevision", request.call_args.args[2])
+
+    def test_start_payload_with_remote_cost_flags(self):
+        with patch.object(harness.ApiClient, "request", return_value={"runId": "run-1", "commandId": "cmd-1"}) as request:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(0, harness.main(["start", "--command-id", "cmd-1", "--role", "developer",
+                    "--profile", "remote-1", "--allow-remote", "--cost-limit", "0.10", "--cost-buffer", "10"]))
+        payload = request.call_args.args[2]
+        self.assertEqual("developer", payload["role"])
+        self.assertEqual(True, payload["allowRemote"])
+        self.assertEqual(100000, payload["costLimitMicros"])
+        self.assertEqual(10, payload["costBufferPercent"])
+
+    def test_resume_cost_flag(self):
+        with patch.object(harness.ApiClient, "request", return_value={"commandId": "cmd-2"}) as request:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(0, harness.main(["resume", "run-1", "--expected-version", "4", "--cost", "0.50"]))
+        self.assertEqual(500000, request.call_args.args[2]["extraCostMicros"])
+
+    def test_format_cost(self):
+        cost = {"spentMicros": 1120000, "estimatedMicros": 40000,
+                "effectiveLimitMicros": 4500000, "limitMicros": 5000000, "bufferPercent": 10}
+        self.assertEqual("role developer · claude-haiku-5-5 · $1.12 (+$0.04 est) of $4.50 / $5.00",
+                         harness.format_cost(cost, "developer", "claude-haiku-5-5"))
+        self.assertIsNone(harness.format_cost(None, "developer", "claude-haiku-5-5"))
+
+    def test_status_prints_cost_line(self):
+        detail = {"role": "developer", "model": "claude-haiku-5-5", "cost": {
+            "spentMicros": 1120000, "estimatedMicros": 40000,
+            "effectiveLimitMicros": 4500000, "limitMicros": 5000000, "bufferPercent": 10}}
+        with patch.object(harness.ApiClient, "request", return_value=detail):
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(0, harness.main(["status", "run-1"]))
+        self.assertIn("role developer · claude-haiku-5-5 · $1.12 (+$0.04 est) of $4.50 / $5.00", output.getvalue())
+
+
 
 if __name__ == "__main__":
     unittest.main()
