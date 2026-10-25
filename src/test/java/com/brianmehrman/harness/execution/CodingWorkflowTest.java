@@ -33,7 +33,9 @@ class CodingWorkflowTest {
                     WorkflowOptions.newBuilder().setWorkflowId(RUN).setTaskQueue("coding-test").build());
             var spec = new RunSpec(RUN, "start-1", "f".repeat(64), "task-tracker-v1",
                     "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
-                    Limits.codingDefaults());
+                    Limits.codingDefaults(), PausePolicy.defaults(),
+                    new RunTerms("developer", "role-digest", "role-blob",
+                            List.of("read_file", "write_file", "run_tests", "submit"), "model", false, null));
 
             RunView result = workflow.run(spec);
 
@@ -43,6 +45,9 @@ class CodingWorkflowTest {
             assertEquals(List.of(SEED, SEED, BROKEN, BROKEN, REPAIRED, REPAIRED, FINAL),
                     fixture.toolSnapshots);
             assertEquals("SUCCEEDED", fixture.publishedStatuses.getLast());
+            assertTrue(fixture.toolAllowances.stream().allMatch(tools -> tools.equals(
+                    List.of("read_file", "write_file", "run_tests", "submit"))));
+            assertEquals(7, fixture.toolAllowances.size());
             assertTrue(fixture.released);
         }
     }
@@ -193,6 +198,7 @@ class CodingWorkflowTest {
     private static final class ScriptedActivities implements RunActivities {
         private final List<ModelReply> replies;
         private final List<String> toolSnapshots = new ArrayList<>();
+        private final List<List<String>> toolAllowances = new ArrayList<>();
         private final List<String> publishedStatuses = new ArrayList<>();
         private int modelCalls;
         private final List<Integer> modelAttempts = new ArrayList<>();
@@ -235,6 +241,7 @@ class CodingWorkflowTest {
             return replies.get(modelCalls++);
         }
         @Override public ToolOutcome invokeTool(ToolInvocation call) {
+            toolAllowances.add(call.allowedTools());
             if (toolEntered != null && "run_tests".equals(call.request().name())) {
                 toolEntered.countDown();
                 try {

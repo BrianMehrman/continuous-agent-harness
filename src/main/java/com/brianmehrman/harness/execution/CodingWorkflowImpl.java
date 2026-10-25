@@ -113,7 +113,8 @@ public class CodingWorkflowImpl implements CodingWorkflow {
                 ToolOutcome outcome;
                 try {
                     outcome = timedActivities(toolDeadline, 2).invokeTool(new ToolInvocation(input.runId(),
-                            toolInvocation, new SnapshotRef(snapshot), request, toolDeadline));
+                            toolInvocation, new SnapshotRef(snapshot), request, toolDeadline,
+                            input.terms() == null ? null : input.terms().tools()));
                 } catch (ActivityFailure failure) {
                     if (cancelRequested) return terminal("CANCELLED");
                     activeRunnerInvocation = null;
