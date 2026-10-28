@@ -8,6 +8,32 @@ type PauseUsage = {
   activeMillisGranted?: number;
 };
 
+type Cost = { spentMicros: number; estimatedMicros: number; effectiveLimitMicros: number | null; limitMicros: number | null; bufferPercent: number };
+
+const money = (micros: number) => `$${(micros / 1_000_000).toFixed(2)}`;
+
+export function dollarsToMicros(value: string): number | null {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value)) return null;
+  const micros = Math.round(Number(value) * 1_000_000);
+  return Number.isSafeInteger(micros) ? micros : null;
+}
+
+export function remoteReady(remote: boolean, allowRemote: boolean, limit: string, buffer: string): boolean {
+  if (!remote) return true;
+  const micros = dollarsToMicros(limit);
+  return allowRemote && micros !== null && micros > 0 && /^\d+$/.test(buffer) && Number(buffer) <= 50;
+}
+
+export function formatCost(cost: Cost | null, role: string | null, model: string | null): string | null {
+  if (!cost || cost.limitMicros === null || cost.effectiveLimitMicros === null) return null;
+  return `role ${role ?? 'unknown'} · ${model ?? 'unknown'} · ${money(cost.spentMicros)} (+${money(cost.estimatedMicros)} est) of ${money(cost.effectiveLimitMicros)} / ${money(cost.limitMicros)}`;
+}
+
+export function formatCostPause(cost: Cost): string {
+  if (cost.effectiveLimitMicros === null || cost.limitMicros === null) return '';
+  return `${money(cost.spentMicros)} spent (incl. ${money(cost.estimatedMicros)} estimated) of ${money(cost.effectiveLimitMicros)} effective / ${money(cost.limitMicros)} limit`;
+}
+
 const label = (value: string) => value.replaceAll('_', ' ').toLowerCase();
 
 export function formatCommandStatus(command: CommandStatus): string {

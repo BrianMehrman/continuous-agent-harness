@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,23 +24,30 @@ public class ProfileController {
     private final JdbcTemplate jdbc;
     private final ProfileRevisionStore profiles;
     private final ModelConfiguration models;
+    private final Environment environment;
 
-    public ProfileController(JdbcTemplate jdbc, ProfileRevisionStore profiles, ModelConfiguration models) {
+    public ProfileController(JdbcTemplate jdbc, ProfileRevisionStore profiles, ModelConfiguration models,
+            Environment environment) {
         this.jdbc = jdbc;
         this.profiles = profiles;
         this.models = models;
+        this.environment = environment;
     }
 
     @GetMapping("/api/profiles") public List<ProfileView> list() {
         return jdbc.queryForList("select id from model_profile_revision order by created_at desc,id desc limit 100",
-                String.class).stream().map(profiles::get).map(ProfileView::from).toList();
+                String.class).stream().map(profiles::get).map(this::view).toList();
+    }
+
+    private ProfileView view(ProfileRevision profile) {
+        return ProfileView.from(profile, environment.getProperty("harness.roles.developer.profile"));
     }
 
     @PostMapping(value = "/api/profiles/probe", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ProfileView probe(@RequestBody String body) {
         Map<String, Object> data = RunController.object(body, Set.of("modelTag"));
         String tag = RunController.string(data, "modelTag");
-        try { return ProfileView.from(models.selectLocalProfile(profiles, tag)); }
+        try { return view(models.selectLocalProfile(profiles, tag)); }
         catch (IllegalArgumentException invalid) { throw new RunController.BadInput(invalid.getMessage()); }
         catch (IllegalStateException failed) {
             if (Set.of("LOCAL_WEIGHTS_UNVERIFIED", "LOCAL_TOOL_MODEL_UNVERIFIED", "PROFILE_DRIFT")
@@ -59,7 +67,7 @@ public class ProfileController {
         try {
             Prices prices = new Prices(price(raw, "inputMicrosPerMTok"), price(raw, "outputMicrosPerMTok"),
                     price(raw, "cacheWriteMicrosPerMTok"), price(raw, "cacheReadMicrosPerMTok"));
-            return ProfileView.from(models.selectAnthropicProfile(profiles,
+            return view(models.selectAnthropicProfile(profiles,
                     RunController.string(data, "modelId"), RunController.string(data, "credentialReference"),
                     positiveInt(data, "contextTokens"), positiveInt(data, "outputTokens"),
                     positiveInt(data, "priceTierInputTokens"), prices));
@@ -89,16 +97,18 @@ public class ProfileController {
 
     public record ProfileView(String id, String adapter, String endpoint, String modelTag,
             String fullDigest, int contextTokens, int outputTokens, Double temperature,
-            boolean toolRoundTripVerified, String modelName, boolean remote) {
-        static ProfileView from(ProfileRevision profile) {
+            boolean toolRoundTripVerified, String modelName, boolean remote, boolean boundToDeveloper) {
+        static ProfileView from(ProfileRevision profile, String bound) {
             if (profile instanceof OllamaProfile ollama)
                 return new ProfileView(ollama.id(), ollama.adapter(), ollama.endpoint(), ollama.modelTag(),
                         ollama.fullDigest(), ollama.contextTokens(), ollama.outputTokens(),
-                        ollama.temperature(), ollama.toolRoundTripVerified(), ollama.modelName(), false);
+                        ollama.temperature(), ollama.toolRoundTripVerified(), ollama.modelName(), false,
+                        ollama.id().equals(bound));
             var anthropic = (AnthropicProfile) profile;
             return new ProfileView(anthropic.id(), anthropic.adapter(), anthropic.endpoint(), null,
                     null, anthropic.contextTokens(), anthropic.outputTokens(), null,
-                    anthropic.toolRoundTripVerified(), anthropic.modelName(), true);
+                    anthropic.toolRoundTripVerified(), anthropic.modelName(), true,
+                    anthropic.id().equals(bound));
         }
     }
 }

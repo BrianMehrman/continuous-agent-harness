@@ -92,6 +92,17 @@ def dollars_to_micros(text):
     return int(amount * 1_000_000)
 
 
+def format_cost(cost, role, model):
+    if cost is None:
+        return None
+    money = lambda micros: f"${Decimal(micros) / 1_000_000:.2f}"
+    spent = money(cost["spentMicros"])
+    estimated = money(cost["estimatedMicros"])
+    effective = money(cost["effectiveLimitMicros"])
+    limit = money(cost["limitMicros"])
+    return f"role {role} · {model} · {spent} (+{estimated} est) of {effective} / {limit}"
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--url", default="http://127.0.0.1:8080")
@@ -107,7 +118,11 @@ def parser():
     remote_probe.add_argument("--output", type=int, required=True)
     remote_probe.add_argument("--price-tier", type=int, required=True)
     start = commands.add_parser("start")
-    start.add_argument("--profile", required=True)
+    start.add_argument("--profile")
+    start.add_argument("--role", default="developer")
+    start.add_argument("--allow-remote", action="store_true")
+    start.add_argument("--cost-limit")
+    start.add_argument("--cost-buffer", type=int)
     start.add_argument("--benchmark", default="task-tracker-v1")
     start.add_argument("--limits", type=Path, help="JSON file containing all run limits")
     start.add_argument("--command-id", default=None)
@@ -128,6 +143,7 @@ def parser():
     resume.add_argument("--turns", type=int, default=0)
     resume.add_argument("--tools", type=int, default=0)
     resume.add_argument("--minutes", type=int, default=0)
+    resume.add_argument("--cost")
     resume.add_argument("--hint", default=None)
     stop = commands.add_parser("stop")
     stop.add_argument("run_id")
@@ -161,16 +177,28 @@ def main(argv=None):
         })
     elif args.command == "start":
         limits = json.loads(args.limits.read_text()) if args.limits else DEFAULT_LIMITS
-        result = client.request("POST", "/api/runs", {
+        body = {
             "commandId": args.command_id or str(uuid.uuid4()),
             "benchmarkVersion": args.benchmark,
-            "profileRevision": args.profile,
+            "role": args.role,
+            "allowRemote": args.allow_remote,
             "limits": limits,
-        })
+        }
+        if args.profile is not None:
+            body["profileRevision"] = args.profile
+        if args.cost_limit is not None:
+            body["costLimitMicros"] = dollars_to_micros(args.cost_limit)
+        if args.cost_buffer is not None:
+            body["costBufferPercent"] = args.cost_buffer
+        result = client.request("POST", "/api/runs", body)
         print(f"runId={result['runId']} commandId={result['commandId']}")
         return 0
     elif args.command == "status":
         result = client.request("GET", "/api/runs" + ("/" + quote(args.run_id) if args.run_id else ""))
+        if args.run_id:
+            line = format_cost(result.get("cost"), result.get("role"), result.get("model"))
+            if line:
+                print(line)
     elif args.command == "events":
         if args.after < 0:
             raise ValueError("--after must be nonnegative")
@@ -187,6 +215,8 @@ def main(argv=None):
                 "extraTurns": args.turns, "extraToolCalls": args.tools, "extraMinutes": args.minutes}
         if args.hint is not None:
             body["hint"] = args.hint
+        if args.cost is not None:
+            body["extraCostMicros"] = dollars_to_micros(args.cost)
         result = client.request("POST", f"/api/runs/{quote(args.run_id)}/resume", body)
     elif args.command == "stop":
         result = client.request("POST", f"/api/runs/{quote(args.run_id)}/stop", {

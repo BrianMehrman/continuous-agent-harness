@@ -201,7 +201,7 @@ class CodingWorkflowTest {
                     WorkflowOptions.newBuilder().setWorkflowId(RUN).setTaskQueue("coding-cost-test").build());
             var cost = new CostTerms(new Prices(1_000_000, 5_000_000, 0, 0),
                     20_000, 2_000, 100_000L, 10);
-            var spec = new RunSpec(RUN, "start-cost", "f".repeat(64), "task-tracker-v1",
+            var spec = new RunSpec(RUN, "start-cost", "f".repeat(64), "repository-v1",
                     "0".repeat(64), "evaluator-v1", "profile-1", "1".repeat(64), SEED,
                     Limits.codingDefaults(), PausePolicy.defaults(),
                     new RunTerms("developer", "role-digest", "role-blob", List.of("read_file", "submit"),
@@ -217,8 +217,9 @@ class CodingWorkflowTest {
             assertEquals("APPLIED", workflow.resume(new ResumeCommand(
                     "cost-enough", paused.version(), 0, 0, 0, null, 50_000)).deliveryStatus());
 
-            assertEquals("SUCCEEDED", result.get(5, TimeUnit.SECONDS).status());
+            assertEquals("READY_FOR_REVIEW", result.get(5, TimeUnit.SECONDS).status());
             assertEquals(4, fixture.modelCalls);
+            assertTrue(fixture.progressSummaries.contains("Model response recorded · developer · model"));
             var pausedEvent = fixture.eventDetails.get(fixture.events.indexOf("PAUSED"));
             assertEquals("COST_LIMIT", pausedEvent.get("reason"));
             assertEquals(3, ((Number) pausedEvent.get("turnsUsed")).intValue());
@@ -263,6 +264,7 @@ class CodingWorkflowTest {
         private int unconfirmedStops;
         private int stopRequests;
         private final List<String> events = new ArrayList<>();
+        private final List<String> progressSummaries = new ArrayList<>();
         private final List<java.util.Map<String, Object>> eventDetails = new ArrayList<>();
         private String hint;
         private int textOnly;
@@ -331,6 +333,10 @@ class CodingWorkflowTest {
                 String snapshotSha256, String type, java.util.Map<String, Object> detail) {
             events.add(type);
             eventDetails.add(detail);
+        }
+        @Override public void publishProgress(String runId, long sequence, long version, String status,
+                String snapshotSha256, String type, String stage, String summary, String artifactDigest) {
+            progressSummaries.add(summary);
         }
         @Override public void publish(String runId, long sequence, long version, String status,
                 String snapshotSha256, String terminalResultBlobId) { publishedStatuses.add(status); }

@@ -200,6 +200,7 @@ public class RepositoryWorkService {
                         "applicationOutcome",rs.getString(3) == null ? "PENDING" : rs.getString(3)), runId));
         result.putAll(PauseHistory.read(jdbc, blobs, runId, (String)row[5]));
         result.putAll(RunCost.read(jdbc, json, runId));
+        result.putAll(RunIdentity.read(jdbc, json, runId));
         return result;
     }
 

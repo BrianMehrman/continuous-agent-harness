@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type Pause, type Profile, type Resume, type RunDetail, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
-import { formatCommandStatus, formatPauseUsage } from './run-detail';
+import { dollarsToMicros, formatCommandStatus, formatCost, formatCostPause, formatPauseUsage, remoteReady } from './run-detail';
 
 const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Paused', 'Terminal'];
 const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW', 'STALLED']);
@@ -19,32 +19,36 @@ function WorkRow({ work, select, now, active = false }: { work: WorkSummary; sel
   </button>;
 }
 
-type Extras = { turns: number; tools: number; minutes: number; hint: string };
-const defaultExtras: Extras = { turns: 20, tools: 50, minutes: 15, hint: '' };
+type Extras = { turns: number; tools: number; minutes: number; cost: string; hint: string };
+const defaultExtras: Extras = { turns: 20, tools: 50, minutes: 15, cost: '', hint: '' };
 
 function PausePanel({ pause, busy, onResume, onStop, onEdit }: { pause: Pause; busy: boolean; onResume: (extras: Extras) => Promise<boolean>; onStop: () => void; onEdit: () => void }) {
   const [extra, setExtra] = useState(defaultExtras);
   const edit = (change: Partial<Extras>) => { setExtra({ ...extra, ...change }); onEdit(); };
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (await onResume(extra)) setExtra(defaultExtras); };
+  const costMicros = dollarsToMicros(extra.cost);
+  const costPause = pause.reason === 'COST_LIMIT';
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (costPause && (!costMicros || costMicros <= 0)) return; if (await onResume(extra)) setExtra(defaultExtras); };
   const stop = () => { if (window.confirm('Stop this run? It ends and cannot be resumed.')) onStop(); };
   return <section className="pause-panel" aria-label="Paused run">
     <h4>Paused · {pause.reason.replaceAll('_', ' ').toLowerCase()}{pause.signal ? ` (${pause.signal.replaceAll('_', ' ').toLowerCase()})` : ''}</h4>
     {pause.evidence.length > 0 && <ol className="evidence">{pause.evidence.map((line, i) => <li key={i}>{line}</li>)}</ol>}
     {pause.note && <p className="instructions">{pause.note}</p>}
     <p className="instructions">{formatPauseUsage(pause)}{pause.waitUntil ? ` · waits until ${new Date(pause.waitUntil).toLocaleString()}` : ''}</p>
+    {costPause && pause.cost && <p className="instructions">{formatCostPause(pause.cost)}</p>}
     <form onSubmit={submit}>
       <label>Extra turns (max 40)<input type="number" min={0} max={40} value={extra.turns} onChange={e => edit({ turns: Number(e.target.value) })} /></label>
       <label>Extra tool calls (max 100)<input type="number" min={0} max={100} value={extra.tools} onChange={e => edit({ tools: Number(e.target.value) })} /></label>
       <label>Extra minutes (max 30)<input type="number" min={0} max={30} value={extra.minutes} onChange={e => edit({ minutes: Number(e.target.value) })} /></label>
+      {costPause && <label>Extra budget ($)<input type="text" inputMode="decimal" value={extra.cost} onChange={e => edit({ cost: e.target.value })} placeholder="0.50" required /></label>}
       <label>Hint for the agent (optional; marks the run assisted)<textarea maxLength={2000} rows={3} value={extra.hint} onChange={e => edit({ hint: e.target.value })} /></label>
-      <div className="form-footer"><button className="primary" disabled={busy}>Resume</button><button type="button" className="secondary" onClick={stop} disabled={busy}>Stop</button></div>
+      <div className="form-footer"><button className="primary" disabled={busy || costPause && (!costMicros || costMicros <= 0)}>Resume</button><button type="button" className="secondary" onClick={stop} disabled={busy}>Stop</button></div>
     </form>
   </section>;
 }
 
 function ResumeHistory({ resumes, label }: { resumes: Resume[]; label: 'assisted' | 'extended' | null }) {
   if (!resumes.length) return null;
-  return <><h4>Resume history {label && <span className="status-pill">{label}</span>}</h4><ol className="events">{resumes.map(r => <li key={r.commandId}>+{r.extraTurns} turns · +{r.extraToolCalls} tool calls · +{r.extraMinutes} min{r.hint ? ` · hint: ${r.hint}` : ''}</li>)}</ol></>;
+  return <><h4>Resume history {label && <span className="status-pill">{label}</span>}</h4><ol className="events">{resumes.map(r => <li key={r.commandId}>+{r.extraTurns} turns · +{r.extraToolCalls} tool calls · +{r.extraMinutes} min{r.extraCostMicros ? ` · +$${(r.extraCostMicros / 1_000_000).toFixed(2)}` : ''}{r.hint ? ` · hint: ${r.hint}` : ''}</li>)}</ol></>;
 }
 
 export default function App() {
@@ -58,6 +62,10 @@ export default function App() {
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
   const [profile, setProfile] = useState('');
+  const [role, setRole] = useState('developer');
+  const [allowRemote, setAllowRemote] = useState(false);
+  const [costLimit, setCostLimit] = useState('');
+  const [costBuffer, setCostBuffer] = useState('10');
   const [modelTag, setModelTag] = useState('');
   const [base, setBase] = useState<string>('');
   const [pendingId, setPendingId] = useState(freshId);
@@ -69,9 +77,21 @@ export default function App() {
   const cursor = useRef(0);
   const pendingCancel = useRef<{ id: string; version: number } | null>(null);
   const pendingControl = useRef<{ id: string; version: number; kind: string } | null>(null);
+  const selectedProfile = profiles.find(item => item.id === profile);
+  const remote = selectedProfile?.remote ?? false;
+
+  function chooseProfile(id: string) {
+    setProfile(id);
+    if (!profiles.find(item => item.id === id)?.remote) {
+      setAllowRemote(false);
+      setCostLimit('');
+      setCostBuffer('10');
+    }
+    setPendingId(freshId());
+  }
 
   useEffect(() => {
-    api.profiles().then(items => { setProfiles(items); setProfile(current => current || items.find(p => p.toolRoundTripVerified)?.id || ''); }).catch(e => setError(String(e)));
+    api.profiles().then(items => { setProfiles(items); setProfile(current => current || items.find(p => p.boundToDeveloper && p.toolRoundTripVerified)?.id || items.find(p => p.toolRoundTripVerified)?.id || ''); }).catch(e => setError(String(e)));
     api.base().then(item => setBase(item.commitSha)).catch(e => setError(String(e)));
     const params = new URLSearchParams(location.search);
     const saved = params.get('work');
@@ -146,11 +166,14 @@ export default function App() {
 
   async function add(event: React.FormEvent) {
     event.preventDefault();
-    if (!profile || busy) return;
+    if (!profile || busy || !remoteReady(remote, allowRemote, costLimit, costBuffer)) return;
     setBusy(true);
     try {
-      const result = await api.create({ commandId: pendingId, title: title.trim(), instructions: instructions.trim(), profileRevision: profile });
-      setTitle(''); setInstructions(''); setPendingId(freshId()); setError('');
+      const result = await api.create({ commandId: pendingId, title: title.trim(), instructions: instructions.trim(),
+        role, ...(selectedProfile?.boundToDeveloper ? {} : { profileRevision: profile }),
+        ...(remote ? { allowRemote: true, costLimitMicros: dollarsToMicros(costLimit)!, costBufferPercent: Number(costBuffer) } : {}) });
+      setTitle(''); setInstructions(''); setAllowRemote(false); setCostLimit(''); setCostBuffer('10');
+      setPendingId(freshId()); setError('');
       choose(result.workId);
     } catch (failure) { setError(`Submit failed: ${String(failure)}. Retry will use the same command ID.`); }
     finally { setBusy(false); }
@@ -163,6 +186,7 @@ export default function App() {
       const verified = await api.probe(modelTag.trim());
       setProfiles(items => [verified, ...items.filter(item => item.id !== verified.id)]);
       setProfile(verified.id);
+      setAllowRemote(false); setCostLimit(''); setCostBuffer('10');
       setPendingId(freshId());
       setError('');
     } catch (failure) { setError(`Model verification failed: ${String(failure)}`); }
@@ -194,7 +218,9 @@ export default function App() {
       const commandId = same ? pendingControl.current!.id : freshId();
       pendingControl.current = { id: commandId, version: target.version, kind };
       if (kind === 'resume') {
-        const body = { commandId, expectedVersion: target.version, extraTurns: extra.turns, extraToolCalls: extra.tools, extraMinutes: extra.minutes, ...(extra.hint.trim() ? { hint: extra.hint.trim() } : {}) };
+        const body = { commandId, expectedVersion: target.version, extraTurns: extra.turns, extraToolCalls: extra.tools, extraMinutes: extra.minutes,
+          ...(extra.cost && dollarsToMicros(extra.cost) !== null ? { extraCostMicros: dollarsToMicros(extra.cost)! } : {}),
+          ...(extra.hint.trim() ? { hint: extra.hint.trim() } : {}) };
         await (run ? api.resumeRun(target.id, body) : api.resume(target.id, body));
       } else await (run ? api.stopRun(target.id, commandId, target.version) : api.stop(target.id, commandId, target.version));
       pendingControl.current = null;
@@ -223,9 +249,15 @@ export default function App() {
           <section className="panel"><div className="panel-heading"><h2>Add work</h2><span>FREE TEXT</span></div><form onSubmit={add}>
             <label>Task title<input required maxLength={160} value={title} onChange={e => {setTitle(e.target.value); setPendingId(freshId());}} placeholder="What should be changed?" /></label>
             <label>Instructions<textarea required maxLength={16000} value={instructions} onChange={e => {setInstructions(e.target.value); setPendingId(freshId());}} rows={5} placeholder="Describe the change and how you want it to behave." /></label>
-            <label>Verified local model<select value={profile} onChange={e => {setProfile(e.target.value); setPendingId(freshId());}} required><option value="">Select a profile</option>{profiles.filter(p => p.toolRoundTripVerified).map(p => <option key={p.id} value={p.id}>{p.modelTag} · {short(p.fullDigest)}</option>)}</select></label>
+            <label>Role<select value={role} onChange={e => {setRole(e.target.value); setPendingId(freshId());}}><option value="developer">Developer</option></select></label>
+            <label>Verified model profile<select value={profile} onChange={e => chooseProfile(e.target.value)} required><option value="">Select a profile</option>{profiles.filter(p => p.toolRoundTripVerified).map(p => <option key={p.id} value={p.id}>{p.modelName}{p.boundToDeveloper ? ' · developer binding' : ''}{p.remote ? ' · remote' : ` · ${short(p.fullDigest ?? '')}`}</option>)}</select></label>
+            {remote && <>
+              <label><input type="checkbox" checked={allowRemote} onChange={e => {setAllowRemote(e.target.checked); setPendingId(freshId());}} /> Send repository content to Anthropic</label>
+              <label>Cost limit ($)<input type="text" inputMode="decimal" value={costLimit} onChange={e => {setCostLimit(e.target.value); setPendingId(freshId());}} placeholder="0.10" required /></label>
+              <label>Cost buffer (%)<input type="number" min={0} max={50} value={costBuffer} onChange={e => {setCostBuffer(e.target.value); setPendingId(freshId());}} required /></label>
+            </>}
             <div className="model-verify"><label>Installed Ollama model tag<input value={modelTag} onChange={e => setModelTag(e.target.value)} placeholder="e.g. qwen3.8:latest" /></label><button type="button" className="secondary" onClick={verifyModel} disabled={busy || !modelTag.trim()}>Verify model</button></div>
-            <div className="form-footer"><span>Current main: <code title={base}>{base || 'unavailable'}</code><br/>Rechecked when submitted</span><button className="primary" disabled={busy || !profile || !base}>{busy ? 'Submitting…' : 'Add to queue →'}</button></div>
+            <div className="form-footer"><span>Current main: <code title={base}>{base || 'unavailable'}</code><br/>Rechecked when submitted</span><button className="primary" disabled={busy || !profile || !base || !remoteReady(remote, allowRemote, costLimit, costBuffer)}>{busy ? 'Submitting…' : 'Add to queue →'}</button></div>
           </form></section>
           <section className="panel"><div className="panel-heading"><h2>Working now</h2><span>{list.active || list.benchmarkActive ? '1 / 1 SLOT' : 'IDLE'}</span></div>{list.active ? <WorkRow work={list.active} select={choose} now={now} active/> : list.benchmarkActive ? <p className="instructions">Benchmark run <button className="link" onClick={() => chooseRun(list.benchmarkActive!.runId)}>{short(list.benchmarkActive.runId)}</button> <a href={`/api/runs/${encodeURIComponent(list.benchmarkActive.runId)}`}>raw JSON ↗</a> · {list.benchmarkActive.status.replaceAll('_', ' ')}<br/>Running {elapsed(list.benchmarkActive.startedAt, now)} · updated {elapsed(list.benchmarkActive.updatedAt, now)} ago</p> : <p className="empty">No task currently holds the execution slot.</p>}</section>
           <section className="panel"><div className="panel-heading"><h2>Paused</h2><span>{list.paused.length} WAITING</span></div>{list.paused.length ? list.paused.map(item => <WorkRow key={item.workId} work={item} select={choose} now={now}/>) : <p className="empty">No paused work.</p>}</section>
@@ -235,12 +267,14 @@ export default function App() {
         <aside className="panel detail"><div className="panel-heading"><h2>Task detail</h2><span>{runDetail && selectedRun ? short(runDetail.projection.runId) : detail ? short(detail.workId) : 'SELECT A TASK'}</span></div>
           {runDetail && selectedRun === runDetail.projection.runId ? <>
             <h3>Benchmark run {short(runDetail.projection.runId)}</h3><div className="status-line"><span className="status-pill">{runDetail.projection.status.replaceAll('_',' ')}</span>{runDetail.projection.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
+            {formatCost(runDetail.cost, runDetail.role, runDetail.model) && <p className="instructions">{formatCost(runDetail.cost, runDetail.role, runDetail.model)}</p>}
             {runDetail.projection.status === 'PAUSED' && runDetail.pause && pausePanel(runDetail.pause, runDetail.projection.runId)}
             <ResumeHistory resumes={runDetail.resumes} label={runDetail.label} />
             <h4>Commands</h4>{runDetail.commands.length > 0 ? <ol className="events">{runDetail.commands.map(c => <li key={c.commandId}>{formatCommandStatus(c)}</li>)}</ol> : <p className="empty">No commands recorded.</p>}
             <a className="download" href={`/api/runs/${encodeURIComponent(runDetail.projection.runId)}`}>raw JSON ↗</a>
           </> : !selectedRun && detail && selected === detail.workId ? <>
             <h3>{detail.title}</h3><div className="status-line"><span className="status-pill">{detail.status.replaceAll('_',' ')}</span>{detail.stale && <span className="warning">No recent confirmed update · view may be stale</span>}</div>
+            {formatCost(detail.cost, detail.role, detail.model) && <p className="instructions">{formatCost(detail.cost, detail.role, detail.model)}</p>}
             {detail.status === 'PAUSED' && detail.pause && pausePanel(detail.pause, detail.workId)}
             <dl><dt>Base commit</dt><dd>{detail.baseCommit}</dd><dt>Model profile</dt><dd>{detail.profileRevision}</dd><dt>Seed snapshot</dt><dd title={detail.seedSnapshotSha256}>{short(detail.seedSnapshotSha256)}</dd></dl>
             <h4>Loop</h4><div className="loop" role="list" aria-label="Coding loop">{stages.map((stage, index) => <div role="listitem" key={stage} className={`stage ${index === currentStage ? 'current' : ''}`}><span>{String(index + 1).padStart(2,'0')}</span>{stage}</div>)}</div>

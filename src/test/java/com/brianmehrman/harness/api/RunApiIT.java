@@ -145,6 +145,9 @@ class RunApiIT {
         profiles.save(new AnthropicProfile(profile, "anthropic", "https://api.anthropic.com",
                 "claude-haiku-5-5", "test_reference", 16384, 4096, 100000,
                 new Prices(100000, 500000, 125000, 10000), true));
+        JsonNode listed = json.readTree(request("GET", "/api/profiles", null).body());
+        assertTrue(listed.isArray());
+        assertTrue(listed.findValues("boundToDeveloper").stream().anyMatch(JsonNode::isBoolean));
         String start = json.writeValueAsString(Map.of("commandId", "start-cost-" + UUID.randomUUID(),
                 "benchmarkVersion", "task-tracker-v1", "profileRevision", profile,
                 "limits", Limits.codingDefaults(), "allowRemote", true,
@@ -152,6 +155,9 @@ class RunApiIT {
         var accepted = request("POST", "/api/runs", start);
         assertEquals(202, accepted.statusCode(), accepted.body());
         String runId = json.readTree(accepted.body()).path("runId").asText();
+        JsonNode detail = json.readTree(request("GET", "/api/runs/" + runId, null).body());
+        assertEquals("developer", detail.path("role").asText());
+        assertEquals("claude-haiku-5-5", detail.path("model").asText());
         String receipt = blobs.put("application/json", "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         jdbc.update("insert into model_attempt(run_id,invocation_id,attempt,input_sha256,status," +
                         "request_blob_id,response_blob_id,ended_at,cost_micros,cost_estimated) " +
