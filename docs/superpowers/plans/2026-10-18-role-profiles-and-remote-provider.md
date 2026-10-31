@@ -454,17 +454,17 @@ Expected: `V9__…` and `V10__record_model_attempt_cost.sql` are listed; Flyway 
   - The workflow's repository `MODEL_RECORDED` summary becomes `"Model response recorded · " + roleName + " · " + modelName` when `terms != null`.
   - `api.ts`: `type Cost = { spentMicros: number; estimatedMicros: number; effectiveLimitMicros: number; limitMicros: number; bufferPercent: number }`. `cost: Cost | null` goes on `WorkDetail` and `RunDetail`, and `cost?: Cost & { nextCallWorstCaseMicros: number }` on `Pause`. `ResumeBody` gains `extraCostMicros?: number`; `Profile` gains `modelName: string; remote: boolean`.
 
-- [ ] **Step 1: Write the failing CLI tests**
+- [x] **Step 1: Write the failing CLI tests**
   - `test_start_payload_with_remote_cost_flags`: `--allow-remote --cost-limit 0.10 --cost-buffer 10` gives `allowRemote: true, costLimitMicros: 100000, costBufferPercent: 10`.
   - `test_resume_cost_flag`: `--cost 0.50` → `extraCostMicros: 500000`.
   - `test_format_cost`: `{"spentMicros":1120000,"estimatedMicros":40000,"effectiveLimitMicros":4500000,"limitMicros":5000000,"bufferPercent":10}` → `"role developer · claude-haiku-5-5 · $1.12 (+$0.04 est) of $4.50 / $5.00"`; `None` → `None`.
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `python3 -m unittest scripts/test_harness.py`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement the CLI**
+- [x] **Step 3: Implement the CLI**
 
 Then the console (`App.tsx`):
 - **Submit form:** a role select (only `developer`). The profile list shows every verified profile, labelled `modelName` and marked "remote" when `remote` is true. When a remote profile is selected:
@@ -476,12 +476,12 @@ Then the console (`App.tsx`):
 - **Pause panel:** for `COST_LIMIT`, show "$<spent> spent (incl. $<estimated> estimated) of $<effective> effective / $<limit> limit", plus an "Extra budget ($)" field. Resume stays disabled until that field is above 0. `ResumeHistory` shows `+$N` when `extraCostMicros > 0`.
 - **Docs:** `docs/api.md` documents the new keys and error codes.
 
-- [ ] **Step 4: Run the checks and confirm they pass**
+- [x] **Step 4: Run the checks and confirm they pass**
 
 Run: `python3 -m unittest scripts/test_harness.py && ./gradlew test`. `processResources` builds the console, so a TypeScript error fails here.
 Expected: PASS.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat: show role, model and cost, and resume cost pauses from the CLI and console"`
+- [x] **Step 5: Commit** — `git commit -m "feat: show role, model and cost, and resume cost pauses from the CLI and console"`
 
 ### Task 9: Secret scan in CI
 
@@ -489,7 +489,7 @@ Expected: PASS.
 - Modify: `.github/workflows/unit-tests.yml`
 - Create: `.gitleaks.toml` (only if the test fixture key needs an allowlist)
 
-- [ ] **Step 1: Add the scan job**
+- [x] **Step 1: Add the scan job**
 
 Add a `secret-scan` job on `ubuntu-24.04`:
 - `actions/checkout` with `fetch-depth: 0` and `persist-credentials: false`.
@@ -499,12 +499,12 @@ Add a `secret-scan` job on `ubuntu-24.04`:
 
 If the Task 3 fake key (`sk-ant-api03-TESTONLY…`) is flagged, allowlist only that exact test path and regex in `.gitleaks.toml`.
 
-- [ ] **Step 2: Check it locally on the branch**
+- [x] **Step 2: Check it locally on the branch**
 
 Run: `gitleaks git --redact --log-opts="origin/main..HEAD"`, using the same pinned binary.
 Expected: `no leaks found`.
 
-- [ ] **Step 3: Commit** — `git commit -m "ci: scan pull requests for leaked secrets with pinned gitleaks"`
+- [x] **Step 3: Commit** — `git commit -m "ci: scan pull requests for leaked secrets with pinned gitleaks"`
 
 ### Task 10: Verification, live acceptance, handoff
 
