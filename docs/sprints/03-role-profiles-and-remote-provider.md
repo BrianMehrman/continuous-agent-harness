@@ -1,6 +1,6 @@
 # Sprint 03 — Role profiles and a remote provider (M2)
 
-Status: In progress. Tasks 1–8 have merged; Task 9 is the current work package.
+Status: In progress. Tasks 1–9 have merged. Task 10 is the current work package: the full build passed, but the live Haiku 5.5 acceptance waits for the owner's Anthropic key at the end of the sprint ([evidence](../evidence/m2-remote-developer.md)).
 
 Milestone: [M2](../plans/roadmap.md#milestones)
 
@@ -28,7 +28,7 @@ Mark a row done only after its PR has merged. The plan's own checkboxes track pr
 | 6 | Role tool sets and secret-path deny list | 6 | [#38](https://github.com/BrianMehrman/continuous-agent-harness/pull/38) | [x] |
 | 7 | Cost ledger, buffered limit, `COST_LIMIT` pause | 7 | [#39](https://github.com/BrianMehrman/continuous-agent-harness/pull/39) | [x] |
 | 8 | CLI and console: role, model, cost, cost resume | 8 | [#40](https://github.com/BrianMehrman/continuous-agent-harness/pull/40) | [x] |
-| 9 | Pinned gitleaks scan in CI | 9 | — | [ ] |
+| 9 | Pinned gitleaks scan in CI | 9 | [#41](https://github.com/BrianMehrman/continuous-agent-harness/pull/41) | [x] |
 | 10 | Full build, live acceptance, evidence, handoff | 10 | — | [ ] |
 
 ## Manual steps (owner)

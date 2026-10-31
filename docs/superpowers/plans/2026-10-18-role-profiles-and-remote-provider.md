@@ -511,7 +511,7 @@ Expected: `no leaks found`.
 **Files:**
 - Modify: `docs/evidence/local-task-tracker.md` or a new `docs/evidence/m2-remote-developer.md`, `docs/STATUS.md`
 
-- [ ] **Step 1: Run the full build**
+- [x] **Step 1: Run the full build**
 
 Run: `./gradlew build`, with services and `HARNESS_RUNNER_IMAGE` / `HARNESS_REPOSITORY_RUNNER_IMAGE` set as in `docs/development.md`.
 Expected: BUILD SUCCESSFUL. Record the unit and integration counts and the commit.
