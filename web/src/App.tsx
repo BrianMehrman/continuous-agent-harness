@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type Pause, type Profile, type Resume, type RunDetail, type WorkDetail, type WorkEvent, type WorkList, type WorkSummary } from './api';
-import { dollarsToMicros, formatCommandStatus, formatCost, formatCostPause, formatPauseUsage, remoteReady } from './run-detail';
+import { dollarsToMicros, formatCommandStatus, formatCost, formatCostPause, formatDollars, formatPauseUsage, remoteReady } from './run-detail';
 
 const stages = ['Queued', 'Model', 'Tool', 'Check', 'Submit', 'Review', 'Paused', 'Terminal'];
 const terminal = new Set(['READY_FOR_REVIEW', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED', 'LIMIT_EXHAUSTED', 'INFRASTRUCTURE_FAILED', 'CONTEXT_OVERFLOW', 'STALLED']);
@@ -48,7 +48,7 @@ function PausePanel({ pause, busy, onResume, onStop, onEdit }: { pause: Pause; b
 
 function ResumeHistory({ resumes, label }: { resumes: Resume[]; label: 'assisted' | 'extended' | null }) {
   if (!resumes.length) return null;
-  return <><h4>Resume history {label && <span className="status-pill">{label}</span>}</h4><ol className="events">{resumes.map(r => <li key={r.commandId}>+{r.extraTurns} turns · +{r.extraToolCalls} tool calls · +{r.extraMinutes} min{r.extraCostMicros ? ` · +$${(r.extraCostMicros / 1_000_000).toFixed(2)}` : ''}{r.hint ? ` · hint: ${r.hint}` : ''}</li>)}</ol></>;
+  return <><h4>Resume history {label && <span className="status-pill">{label}</span>}</h4><ol className="events">{resumes.map(r => <li key={r.commandId}>+{r.extraTurns} turns · +{r.extraToolCalls} tool calls · +{r.extraMinutes} min{r.extraCostMicros ? ` · +${formatDollars(r.extraCostMicros)}` : ''}{r.hint ? ` · hint: ${r.hint}` : ''}</li>)}</ol></>;
 }
 
 export default function App() {

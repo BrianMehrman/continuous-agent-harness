@@ -10,7 +10,13 @@ type PauseUsage = {
 
 type Cost = { spentMicros: number; estimatedMicros: number; effectiveLimitMicros: number | null; limitMicros: number | null; bufferPercent: number };
 
-const money = (micros: number) => `$${(micros / 1_000_000).toFixed(2)}`;
+// Exact micro-dollars: at least two decimals, trailing zeros dropped, never rounded.
+export function formatDollars(micros: number): string {
+  const [whole, fraction] = (micros / 1_000_000).toFixed(6).split('.');
+  return `$${whole}.${fraction.replace(/0+$/, '').padEnd(2, '0')}`;
+}
+
+const money = formatDollars;
 
 export function dollarsToMicros(value: string): number | null {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value)) return null;

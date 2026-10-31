@@ -92,10 +92,15 @@ def dollars_to_micros(text):
     return int(amount * 1_000_000)
 
 
+def money(micros):
+    # Exact micro-dollars: at least two decimals, trailing zeros dropped, never rounded.
+    whole, fraction = f"{Decimal(micros) / 1_000_000:.6f}".split(".")
+    return f"${whole}.{fraction.rstrip('0').ljust(2, '0')}"
+
+
 def format_cost(cost, role, model):
     if cost is None:
         return None
-    money = lambda micros: f"${Decimal(micros) / 1_000_000:.2f}"
     spent = money(cost["spentMicros"])
     estimated = money(cost["estimatedMicros"])
     effective = money(cost["effectiveLimitMicros"])
