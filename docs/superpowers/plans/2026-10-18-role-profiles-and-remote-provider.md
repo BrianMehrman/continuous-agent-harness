@@ -530,7 +530,7 @@ Follow the spec's Acceptance section. The owner stores the key once, using the `
 
 Record the run ID, commit, final spend, estimated part, pause and resume, and build counts. Before committing, run `git diff --cached | grep -E 'sk-ant-[A-Za-z0-9_-]{8,}'` and expect no output. Update `docs/STATUS.md`.
 
-- [ ] **Step 4: Inspect and push**
+- [x] **Step 4: Inspect and push**
 
 Inspect `git status` and the final diff. Run the pinned gitleaks over the branch. Push, then open the PR, listing:
 - the net new test count;
