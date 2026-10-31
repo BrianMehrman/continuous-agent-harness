@@ -516,7 +516,7 @@ Expected: `no leaks found`.
 Run: `./gradlew build`, with services and `HARNESS_RUNNER_IMAGE` / `HARNESS_REPOSITORY_RUNNER_IMAGE` set as in `docs/development.md`.
 Expected: BUILD SUCCESSFUL. Record the unit and integration counts and the commit.
 
-- [ ] **Step 2: Run the live acceptance on the head commit**
+- [x] **Step 2: Run the live acceptance on the head commit**
 
 Follow the spec's Acceptance section. The owner stores the key once, using the `! python3 scripts/store-anthropic-key.py` prompt in this session. Then:
 1. `probe-anthropic claude-haiku-5-5 --credential anthropic_api_key --prices 0.10,0.50,0.125,0.01 --context 16384 --output 4096 --price-tier 100000`.
@@ -526,7 +526,7 @@ Follow the spec's Acceptance section. The owner stores the key once, using the `
 5. Confirm the `COST_LIMIT` pause shows spend at or below `$0.09`.
 6. Resume with `+$0.50` and reach Ready for review.
 
-- [ ] **Step 3: Record the evidence**
+- [x] **Step 3: Record the evidence**
 
 Record the run ID, commit, final spend, estimated part, pause and resume, and build counts. Before committing, run `git diff --cached | grep -E 'sk-ant-[A-Za-z0-9_-]{8,}'` and expect no output. Update `docs/STATUS.md`.
 
