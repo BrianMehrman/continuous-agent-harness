@@ -1,6 +1,6 @@
 # Sprint 03 — Role profiles and a remote provider (M2)
 
-Status: In progress. Tasks 1–9 have merged. Task 10's PR is open ([#42](https://github.com/BrianMehrman/continuous-agent-harness/pull/42)); the live acceptance passed on 2026-10-31 with a $0.005 limit ([evidence](../evidence/m2-remote-developer.md)).
+Status: Closed. Task 10 merged in [PR #42](https://github.com/BrianMehrman/continuous-agent-harness/pull/42) as `89bf5f4` on 2026-10-31; the live acceptance passed with a $0.005 limit ([evidence](../evidence/m2-remote-developer.md)).
 
 Milestone: [M2](../plans/roadmap.md#milestones)
 
@@ -29,7 +29,7 @@ Mark a row done only after its PR has merged. The plan's own checkboxes track pr
 | 7 | Cost ledger, buffered limit, `COST_LIMIT` pause | 7 | [#39](https://github.com/BrianMehrman/continuous-agent-harness/pull/39) | [x] |
 | 8 | CLI and console: role, model, cost, cost resume | 8 | [#40](https://github.com/BrianMehrman/continuous-agent-harness/pull/40) | [x] |
 | 9 | Pinned gitleaks scan in CI | 9 | [#41](https://github.com/BrianMehrman/continuous-agent-harness/pull/41) | [x] |
-| 10 | Full build, live acceptance, evidence, handoff | 10 | — | [ ] |
+| 10 | Full build, live acceptance, evidence, handoff | 10 | [#42](https://github.com/BrianMehrman/continuous-agent-harness/pull/42) | [x] |
 
 ## Manual steps (owner)
 
