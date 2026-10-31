@@ -107,6 +107,11 @@ class CostCliTest(unittest.TestCase):
         self.assertEqual("role developer · claude-haiku-5-5 · $1.12 (+$0.04 est) of $4.50 / $5.00",
                          harness.format_cost(cost, "developer", "claude-haiku-5-5"))
         self.assertIsNone(harness.format_cost(None, "developer", "claude-haiku-5-5"))
+        sub_cent = {"spentMicros": 1270, "estimatedMicros": 0,
+                    "effectiveLimitMicros": 4500, "limitMicros": 5000, "bufferPercent": 10}
+        self.assertEqual("role developer · claude-haiku-5-5 · $0.00127 (+$0.00 est) of $0.0045 / $0.005",
+                         harness.format_cost(sub_cent, "developer", "claude-haiku-5-5"))
+        self.assertEqual("$0.505", harness.money(505000))
 
     def test_status_prints_cost_line(self):
         detail = {"role": "developer", "model": "claude-haiku-5-5", "cost": {

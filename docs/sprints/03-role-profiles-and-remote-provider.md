@@ -1,6 +1,6 @@
 # Sprint 03 — Role profiles and a remote provider (M2)
 
-Status: In progress. Tasks 1–8 have merged; Task 9 is the current work package.
+Status: In progress. Tasks 1–9 have merged. Task 10's PR is open ([#42](https://github.com/BrianMehrman/continuous-agent-harness/pull/42)); the live acceptance passed on 2026-10-31 with a $0.005 limit ([evidence](../evidence/m2-remote-developer.md)).
 
 Milestone: [M2](../plans/roadmap.md#milestones)
 
@@ -28,7 +28,7 @@ Mark a row done only after its PR has merged. The plan's own checkboxes track pr
 | 6 | Role tool sets and secret-path deny list | 6 | [#38](https://github.com/BrianMehrman/continuous-agent-harness/pull/38) | [x] |
 | 7 | Cost ledger, buffered limit, `COST_LIMIT` pause | 7 | [#39](https://github.com/BrianMehrman/continuous-agent-harness/pull/39) | [x] |
 | 8 | CLI and console: role, model, cost, cost resume | 8 | [#40](https://github.com/BrianMehrman/continuous-agent-harness/pull/40) | [x] |
-| 9 | Pinned gitleaks scan in CI | 9 | — | [ ] |
+| 9 | Pinned gitleaks scan in CI | 9 | [#41](https://github.com/BrianMehrman/continuous-agent-harness/pull/41) | [x] |
 | 10 | Full build, live acceptance, evidence, handoff | 10 | — | [ ] |
 
 ## Manual steps (owner)
@@ -47,6 +47,8 @@ CI needs no key.
 - The gitleaks CI step passes on the PR.
 - A live, browser-driven repository task runs as `developer` on `claude-haiku-5-5` with a $0.10 limit and a 10% buffer. It pauses at `COST_LIMIT` with spend at or below $0.09, is resumed with +$0.50, and reaches Ready for review.
 - Record the run ID, commit, final spend and estimated part, with no key material.
+
+On 2026-10-31 the owner accepted a $0.005 limit in place of $0.10: a small Haiku 5.5 task spends about $0.003, so it never reaches a $0.10 limit. A $0.01 run completed under budget, and a $0.005 run paused and resumed ([evidence](../evidence/m2-remote-developer.md)).
 
 Scripted or stubbed results do not complete this sprint.
 
